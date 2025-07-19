@@ -1,0 +1,22 @@
+{
+    "name": "hh-chat-extension-api",
+    "version": "1.0.0",
+    "description": "API server for HH.ru chat extension",
+    "main": "api.example.js",
+    "scripts": {
+      "dev": "node api.example.js",
+      "start": "npm run dev"
+    },
+    "dependencies": {
+      "express": "^4.18.2",
+      "cors": "^2.8.5"
+    },
+    "keywords": [
+      "hh.ru",
+      "chat",
+      "automation",
+      "chrome-extension"
+    ],
+    "author": "",
+    "license": "MIT"
+  }
