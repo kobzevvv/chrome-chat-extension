@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "HH.ru Chat Assistant",
+    "version": "1.0.0",
+    "description": "Automate and monitor HH.ru chat messages",
+    "permissions": [
+      "activeTab",
+      "storage",
+      "tabs"
+    ],
+    "host_permissions": [
+      "*://*.hh.ru/chat/*"
+    ],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "content_scripts": [
+      {
+        "matches": ["*://*.hh.ru/chat/*"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+      }
+    ],
+    "action": {
+      "default_popup": "popup/popup.html",
+      "default_title": "HH Chat Assistant"
+    }
+  }
