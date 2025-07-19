@@ -2,9 +2,9 @@
     "name": "hh-chat-extension-api",
     "version": "1.0.0",
     "description": "API server for HH.ru chat extension",
-    "main": "api.example.js",
+    "main": "util/api.example.js",
     "scripts": {
-      "dev": "node api.example.js",
+      "dev": "node util/api.example.js",
       "start": "npm run dev"
     },
     "dependencies": {
