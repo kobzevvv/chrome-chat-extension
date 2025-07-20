@@ -243,11 +243,12 @@
     <h4>Send Message</h4>
     <div class="input-group">
       <input type="text" id="quickFormat" placeholder="chat:4644696158:Привет" style="width: 100%;">
-      <button class="send-btn" id="quickSendBtn" onclick="sendQuickMessage()">Send</button>
+      <button class="send-btn" id="quickSendBtn" onclick="console.log('🔴 BUTTON CLICKED!'); sendQuickMessage()">Send</button>
     </div>
     <div class="help-text">
       Format: chat:ID:message (click on chat items to get the format)
     </div>
+    <button onclick="console.log('🧪 TEST BUTTON CLICKED'); addLog('🧪 Test button works!', 'info')" style="margin-top: 8px; padding: 4px 8px; font-size: 11px;">Test Logging</button>
   </div>
   
   <div class="log-section">
