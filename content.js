@@ -1,5 +1,8 @@
-// Simple selectors - these will need to be updated based on actual HH.ru DOM
-// TODO: Inspect HH.ru pages to find correct selectors
+// HH.ru Chat Extension Content Script
+console.log('🚀 HH Chat Extension: Content script loaded at', new Date().toLocaleTimeString());
+console.log('📍 Current URL:', window.location.href);
+
+// Selectors for HH.ru chat interface
 const SELECTORS = {
     // Chat list selectors (for main chat page)
     CHAT_LIST: '.chat-list, [data-qa="chat-list"], .conversations, .dialog-list',
@@ -18,10 +21,6 @@ const SELECTORS = {
     MESSAGE_INPUT: 'textarea[data-qa="chatik-new-message-text"], .chat-text-area textarea, .message-input',
     SEND_BUTTON: 'button[data-qa="chatik-do-send-message"], .send-button, button[type="submit"]'
 };
-
-console.log('🚀 HH Chat Extension: Content script loaded at', new Date().toLocaleTimeString());
-console.log('📍 Current URL:', window.location.href);
-console.log('📋 User agent:', navigator.userAgent.substring(0, 100));
 
 // Extract chat ID from current URL
 const currentChatId = extractChatIdFromUrl(window.location.href);
@@ -43,10 +42,9 @@ if (currentChatId) {
   console.log('⚠️ No chat ID found in URL, not announcing readiness');
 }
 
-// Listen for messages from popup
+// Listen for messages from popup/background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('📨 Content script received message:', message);
-  console.log('🕐 At time:', new Date().toLocaleTimeString());
+  console.log('📨 Content script received message at', new Date().toLocaleTimeString(), ':', message);
   
   if (message.type === 'GET_CHAT_LIST') {
     console.log('🔍 Processing GET_CHAT_LIST request...');
@@ -57,7 +55,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('❌ GET_CHAT_LIST failed:', error);
       sendResponse({success: false, error: error.message});
     });
-    return true; // Keep message channel open
+    return true;
   }
   
   if (message.type === 'SEND_MESSAGE') {
@@ -196,6 +194,9 @@ async function sendMessage(chatId, messageText) {
       // Debug: show all buttons
       const allButtons = document.querySelectorAll('button');
       console.log(`Debug: Found ${allButtons.length} button elements:`, allButtons);
+      allButtons.forEach((btn, index) => {
+        console.log(`  Button ${index}:`, btn.outerHTML.substring(0, 200));
+      });
       
       return {
         success: false,
@@ -302,26 +303,6 @@ async function getChatList() {
       
       const currentChat = extractCurrentChatInfo();
       if (currentChat) chats.push(currentChat);
-    }
-    
-    // Method 4: Debug - show all elements for analysis
-    if (chats.length === 0) {
-      console.log('No chats found, showing debug info...');
-      
-      // Get some DOM structure info for debugging
-      const bodyClasses = document.body.className;
-      const mainContent = document.querySelector('main, #main, .main-content, .content');
-      const allLinks = document.querySelectorAll('a[href*="hh.ru"]').length;
-      
-      chats.push({
-        id: 'debug',
-        chatId: 'debug',
-        name: `Debug Info - ${document.title}`,
-        lastMessage: `Body classes: ${bodyClasses.substring(0, 100)}`,
-        messageCount: allLinks,
-        isActive: true,
-        url: url
-      });
     }
     
     console.log('Final chat list:', chats);
@@ -481,13 +462,4 @@ function extractCurrentChatInfo() {
 }
 
 // Initialize
-console.log('HH Chat Extension: Content script initialized');
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
-
-function init() {
-  console.log('HH Chat Extension: Content script ready');
-}
+console.log('HH Chat Extension: Content script initialized and ready');
