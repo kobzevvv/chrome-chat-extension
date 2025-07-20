@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 350px;
+      width: 400px;
       margin: 0;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -30,8 +30,61 @@
       color: #666;
     }
     
+    .message-sender {
+      margin-bottom: 16px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: #f8f9fa;
+    }
+    
+    .message-sender h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #333;
+    }
+    
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .input-group input {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    
+    .send-btn {
+      padding: 6px 12px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .send-btn:hover {
+      background: #0056b3;
+    }
+    
+    .send-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .help-text {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+    
     .chat-list {
-      max-height: 300px;
+      max-height: 350px;
       overflow-y: auto;
       border: 1px solid #ddd;
       border-radius: 4px;
@@ -57,6 +110,17 @@
       font-weight: 500;
       margin-bottom: 4px;
       color: #333;
+    }
+    
+    .chat-id {
+      font-family: monospace;
+      font-size: 11px;
+      color: #007bff;
+      background: #e7f3ff;
+      padding: 2px 4px;
+      border-radius: 2px;
+      display: inline-block;
+      margin-bottom: 4px;
     }
     
     .chat-preview {
@@ -89,15 +153,80 @@
       font-size: 13px;
     }
     
-    .debug {
-      margin-top: 16px;
+    .success {
+      background: #d4edda;
+      color: #155724;
       padding: 8px;
-      background: #f8f9fa;
       border-radius: 4px;
-      font-size: 11px;
-      color: #666;
-      max-height: 100px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    
+    .log-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: #fff;
+    }
+    
+    .log-section h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #333;
+    }
+    
+    #logContainer {
+      max-height: 120px;
       overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      background: #f8f9fa;
+      padding: 8px;
+      border-radius: 3px;
+      border: 1px solid #eee;
+    }
+    
+    .log-entry {
+      margin-bottom: 4px;
+      padding: 2px 0;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    
+    .log-time {
+      color: #666;
+      margin-right: 8px;
+    }
+    
+    .log-success {
+      color: #28a745;
+    }
+    
+    .log-error {
+      color: #dc3545;
+    }
+    
+    .log-info {
+      color: #007bff;
+    }
+    
+    .quick-copy {
+      font-family: monospace;
+      font-size: 10px;
+      color: #666;
+      background: #f8f9fa;
+      padding: 2px 4px;
+      border-radius: 2px;
+      cursor: pointer;
+      user-select: all;
+    }
+    
+    .quick-copy:hover {
+      background: #e9ecef;
     }
   </style>
 </head>
@@ -108,6 +237,23 @@
   </div>
   
   <div id="error" class="error" style="display: none;"></div>
+  <div id="success" class="success" style="display: none;"></div>
+  
+  <div class="message-sender">
+    <h4>Send Message</h4>
+    <div class="input-group">
+      <input type="text" id="quickFormat" placeholder="chat:4644696158:Привет" style="width: 100%;">
+      <button class="send-btn" id="quickSendBtn" onclick="sendQuickMessage()">Send</button>
+    </div>
+    <div class="help-text">
+      Format: chat:ID:message (click on chat items to get the format)
+    </div>
+  </div>
+  
+  <div class="log-section">
+    <h4>Status Log</h4>
+    <div id="logContainer"></div>
+  </div>
   
   <div class="chat-list" id="chatList">
     <div class="empty">Looking for active chats...</div>
