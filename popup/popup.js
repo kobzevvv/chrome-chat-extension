@@ -1,4 +1,5 @@
 let currentTabId = null;
+let selectedChatId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Get current active tab
@@ -15,6 +16,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Load chat list
   loadChatList();
+
+  document.getElementById('sendBtn').addEventListener('click', handleSendClick);
 });
 
 async function loadChatList() {
@@ -62,10 +65,11 @@ function renderChatList(chats) {
   }
   
   container.innerHTML = chats.map((chat, index) => `
-    <div class="chat-item" onclick="selectChat('${chat.id}')">
+    <div class="chat-item" onclick="selectChat('${chat.chatId}', event)">
       <div class="chat-name">${escapeHtml(chat.name || `Chat #${index + 1}`)}</div>
       <div class="chat-preview">${escapeHtml(chat.lastMessage || 'No messages')}</div>
       <div class="chat-meta">
+        <span>ID: ${chat.chatId || 'n/a'}</span>
         <span>Messages: ${chat.messageCount || 0}</span>
         <span>${chat.isActive ? '🟢 Active' : '⚪ Inactive'}</span>
       </div>
@@ -73,16 +77,19 @@ function renderChatList(chats) {
   `).join('');
 }
 
-function selectChat(chatId) {
-  // TODO: Handle chat selection
+function selectChat(chatId, evt) {
+  selectedChatId = chatId;
   updateStatus(`Selected chat: ${chatId}`);
-  
+
   // For now, just highlight the selected chat
   document.querySelectorAll('.chat-item').forEach(item => {
     item.style.backgroundColor = '';
   });
-  
-  event.target.closest('.chat-item').style.backgroundColor = '#e3f2fd';
+
+  if (evt) evt.currentTarget.style.backgroundColor = '#e3f2fd';
+
+  const input = document.getElementById('sendInput');
+  if (input) input.value = `${chatId}:`;
 }
 
 function updateStatus(text) {
@@ -102,4 +109,40 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function handleSendClick() {
+  const input = document.getElementById('sendInput');
+  const value = input.value.trim();
+  if (!value) return;
+
+  const parts = value.split(':');
+  if (parts.length < 2 && !selectedChatId) {
+    showError('Use format chatId:message');
+    return;
+  }
+
+  if (parts[0] === 'chat') parts.shift();
+  let chatId;
+  let text;
+  if (parts.length >= 2) {
+    chatId = parts.shift();
+    text = parts.join(':');
+  } else {
+    chatId = selectedChatId;
+    text = parts.join(':');
+  }
+
+  chrome.tabs.sendMessage(currentTabId, { type: 'SEND_MESSAGE', chatId, text })
+    .then(res => {
+      if (res && res.success) {
+        updateStatus('Message sent');
+        input.value = '';
+      } else {
+        showError('Failed to send message');
+      }
+    })
+    .catch(err => {
+      showError('Error: ' + err.message);
+    });
 }

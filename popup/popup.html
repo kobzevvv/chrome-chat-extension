@@ -99,6 +99,21 @@
       max-height: 100px;
       overflow-y: auto;
     }
+
+    .send-message {
+      display: flex;
+      margin-top: 8px;
+    }
+
+    .send-message input {
+      flex: 1;
+      padding: 4px;
+      font-size: 13px;
+    }
+
+    .send-message button {
+      margin-left: 4px;
+    }
   </style>
 </head>
 <body>
@@ -112,7 +127,12 @@
   <div class="chat-list" id="chatList">
     <div class="empty">Looking for active chats...</div>
   </div>
-  
+
+  <div class="send-message">
+    <input id="sendInput" type="text" placeholder="chatId:message">
+    <button id="sendBtn">Send</button>
+  </div>
+
   <div class="debug" id="debug"></div>
   
   <script src="popup.js"></script>
