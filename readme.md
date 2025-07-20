@@ -24,3 +24,5 @@ A Chrome extension that monitors and automates HH.ru chat interactions.
 ```bash
 npm install
 npm run dev
+
+
