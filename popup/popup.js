@@ -114,6 +114,7 @@ function escapeHtml(text) {
 function handleSendClick() {
   const input = document.getElementById('sendInput');
   const value = input.value.trim();
+  console.log('Popup send click', value);
   if (!value) return;
 
   const parts = value.split(':');
@@ -135,6 +136,7 @@ function handleSendClick() {
 
   chrome.tabs.sendMessage(currentTabId, { type: 'SEND_MESSAGE', chatId, text })
     .then(res => {
+      console.log('Send response', res);
       if (res && res.success) {
         updateStatus('Message sent');
         input.value = '';
@@ -143,6 +145,7 @@ function handleSendClick() {
       }
     })
     .catch(err => {
+      console.error('Send error', err);
       showError('Error: ' + err.message);
     });
 }

@@ -7,6 +7,7 @@ function parseChatId(url) {
 }
 
 function getChatList() {
+  console.log('getChatList called');
   const chats = [];
   const seen = new Set();
   document.querySelectorAll('a[href*="/chat/"]').forEach(link => {
@@ -28,30 +29,50 @@ function getChatList() {
 }
 
 async function sendMessageToChat(chatId, text) {
+  console.log('sendMessageToChat', chatId, text);
   if (!chatId) throw new Error('chatId required');
   const targetUrl = `https://hh.ru/chat/${chatId}`;
   if (!location.href.includes(`/chat/${chatId}`)) {
+    console.log('Navigating to chat page:', targetUrl);
     location.href = targetUrl;
     await new Promise(r => setTimeout(r, 1000));
   }
   const input = document.querySelector('textarea[data-qa="chatik-new-message-text"]');
-  if (!input) throw new Error('Message input not found');
+  if (!input) {
+    console.error('Message input not found');
+    throw new Error('Message input not found');
+  }
   input.focus();
   input.value = text;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   const btn = document.querySelector('button[data-qa="chatik-do-send-message"]');
-  if (!btn) throw new Error('Send button not found');
+  if (!btn) {
+    console.error('Send button not found');
+    throw new Error('Send button not found');
+  }
   btn.click();
+  console.log('Message sent via UI');
   return { success: true };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log('Content script received message', msg);
   if (msg.type === 'GET_CHAT_LIST') {
-    sendResponse(getChatList());
+    const result = getChatList();
+    console.log('Returning chat list', result);
+    sendResponse(result);
     return true;
   }
   if (msg.type === 'SEND_MESSAGE') {
-    sendMessageToChat(msg.chatId, msg.text).then(res => sendResponse(res)).catch(err => sendResponse({ success:false, error: err.message }));
+    sendMessageToChat(msg.chatId, msg.text)
+      .then(res => {
+        console.log('sendMessage result', res);
+        sendResponse(res);
+      })
+      .catch(err => {
+        console.error('sendMessage error', err);
+        sendResponse({ success:false, error: err.message });
+      });
     return true;
   }
 });
