@@ -1,16 +1,308 @@
 let currentTabId = null;
 
+// Simple logging that directly writes to the log container
+function addLog(message) {
+  console.log('📋 LOG:', message);
+  
+  const logContainer = document.getElementById('logContainer');
+  if (logContainer) {
+    const time = new Date().toLocaleTimeString();
+    logContainer.textContent += `[${time}] ${message}\n`;
+    logContainer.scrollTop = logContainer.scrollHeight;
+  } else {
+    console.log('❌ logContainer not found in DOM');
+  }
+}
+
+// Test function
+function testLogging() {
+  console.log('🧪 TEST BUTTON CLICKED!');
+  addLog('🧪 Test button works!');
+  alert('Test button clicked! Check console and log.');
+}
+
+// Main send function - now delegates to background service
+async function sendQuickMessage() {
+  console.log('🚀 === SEND BUTTON CLICKED ===');
+  addLog('🚀 Send button clicked');
+  
+  try {
+    // Get input value
+    const input = document.getElementById('quickFormat');
+    if (!input) {
+      console.log('❌ Input not found');
+      addLog('❌ Input field not found');
+      return;
+    }
+    
+    const message = input.value.trim();
+    console.log('📋 Input value:', message);
+    addLog(`📋 Input: "${message}"`);
+    
+    // Parse the message
+    const match = message.match(/^chat:(\d+):(.+)$/);
+    if (!match) {
+      console.log('❌ Invalid format');
+      addLog('❌ Invalid format. Use: chat:1234567890:message');
+      alert('Invalid format!\nUse: chat:1234567890:YourMessage');
+      return;
+    }
+    
+    const chatId = match[1];
+    const messageText = match[2];
+    
+    console.log('✅ Parsed:', {chatId, messageText});
+    addLog(`✅ Chat ID: ${chatId}`);
+    addLog(`✅ Message: "${messageText}"`);
+    
+    // Disable send button during process
+    const sendBtn = document.getElementById('quickSendBtn');
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending...';
+    }
+    
+    // Check which mode is selected (with fallback)
+    let sendMode = 'current'; // default
+    try {
+      const selectedMode = document.querySelector('input[name="sendMode"]:checked');
+      if (selectedMode) {
+        sendMode = selectedMode.value;
+      }
+    } catch (error) {
+      console.log('❌ Mode selection error, using default:', error);
+      addLog('⚠️ Using default mode: current tab');
+    }
+    
+    addLog(`📋 Send mode: ${sendMode}`);
+    addLog(`📤 Delegating to background service...`);
+    
+    // Send to background service worker
+    const response = await chrome.runtime.sendMessage({
+      type: 'SEND_MESSAGE_BACKGROUND',
+      chatId: chatId,
+      messageText: messageText,
+      mode: sendMode
+    });
+    
+    if (response && response.success) {
+      addLog('✅ Message queued for sending!');
+      addLog('📋 Background service will handle the rest');
+      
+      if (sendMode === 'current') {
+        addLog('📍 Current tab will navigate to chat page');
+      } else {
+        addLog('📍 Background tab will open and send message');
+      }
+      
+      // Clear input
+      input.value = '';
+      
+    } else {
+      addLog('❌ Failed to queue message');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    addLog(`❌ Error: ${error.message}`);
+  } finally {
+    // Re-enable send button
+    const sendBtn = document.getElementById('quickSendBtn');
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Send';
+    }
+  }
+}
+
+async function sendMessageToChat(chatId, messageText) {
+  try {
+    addLog(`📍 Step 1: Opening chat ${chatId}...`);
+    
+    // Create new tab or update existing tab with the chat URL
+    const chatUrl = `https://ufa.hh.ru/chat/${chatId}`;
+    
+    // Option 1: Update current tab
+    await chrome.tabs.update(currentTabId, { url: chatUrl });
+    addLog(`📍 Navigated to chat page`);
+    
+    // Wait for page to load
+    addLog(`⏱️ Step 2: Waiting for page to load...`);
+    
+    // Wait for navigation to complete
+    await new Promise(resolve => {
+      const listener = (tabId, changeInfo) => {
+        if (tabId === currentTabId && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      
+      // Fallback timeout
+      setTimeout(resolve, 5000);
+    });
+    
+    addLog(`✅ Page loaded`);
+    addLog(`📋 Step 3: Injecting content script...`);
+    
+    // Inject content script
+    await chrome.scripting.executeScript({
+      target: { tabId: currentTabId },
+      files: ['content.js']
+    });
+    
+    addLog(`✅ Content script injected`);
+    addLog(`⏱️ Step 4: Waiting for script to initialize...`);
+    
+    // Wait for content script to initialize
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    addLog(`📤 Step 5: Sending message...`);
+    
+    // Send message
+    const response = await chrome.tabs.sendMessage(currentTabId, {
+      type: 'SEND_MESSAGE',
+      chatId: chatId,
+      text: messageText
+    });
+    
+    console.log('📨 Response:', response);
+    
+    if (response && response.success) {
+      addLog('🎉 SUCCESS: Message sent!');
+      
+      // Clear input
+      const input = document.getElementById('quickFormat');
+      if (input) input.value = '';
+      
+      addLog(`📍 You can now see the sent message in the chat`);
+      
+    } else {
+      addLog(`❌ Send failed: ${response?.error || 'Unknown error'}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Send error:', error);
+    addLog(`❌ Send error: ${error.message}`);
+    
+    if (error.message.includes('Could not establish connection')) {
+      addLog(`💡 Try waiting a bit longer and try again`);
+    }
+  }
+}
+
+// Alternative: Send in background tab (doesn't switch focus)
+async function sendMessageInBackground(chatId, messageText) {
+  try {
+    addLog(`📍 Opening chat ${chatId} in background...`);
+    
+    // Create new background tab
+    const newTab = await chrome.tabs.create({
+      url: `https://ufa.hh.ru/chat/${chatId}`,
+      active: false  // Don't switch to this tab
+    });
+    
+    addLog(`📍 Background tab created: ${newTab.id}`);
+    
+    // Wait for page to load
+    await new Promise(resolve => {
+      const listener = (tabId, changeInfo) => {
+        if (tabId === newTab.id && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      
+      setTimeout(resolve, 5000);
+    });
+    
+    addLog(`✅ Background page loaded`);
+    
+    // Inject content script
+    await chrome.scripting.executeScript({
+      target: { tabId: newTab.id },
+      files: ['content.js']
+    });
+    
+    addLog(`✅ Content script injected in background`);
+    
+    // Wait for initialization
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Send message
+    const response = await chrome.tabs.sendMessage(newTab.id, {
+      type: 'SEND_MESSAGE',
+      chatId: chatId,
+      text: messageText
+    });
+    
+    if (response && response.success) {
+      addLog('🎉 SUCCESS: Message sent in background!');
+      
+      // Close background tab after a moment
+      setTimeout(() => {
+        chrome.tabs.remove(newTab.id);
+        addLog(`📍 Background tab closed`);
+      }, 1000);
+      
+      // Clear input
+      const input = document.getElementById('quickFormat');
+      if (input) input.value = '';
+      
+    } else {
+      addLog(`❌ Background send failed: ${response?.error || 'Unknown error'}`);
+    }
+    
+  } catch (error) {
+    addLog(`❌ Background send error: ${error.message}`);
+  }
+}
+
+// Set up event listeners when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
-  // Get current active tab
-  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-  currentTabId = tab.id;
+  console.log('🚀 Popup loaded');
+  addLog('🚀 Popup loaded');
   
-  updateStatus(`Current URL: ${tab.url.substring(0, 50)}...`);
+  // Get current tab
+  try {
+    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    currentTabId = tab.id;
+    
+    console.log('📋 Tab:', tab.url);
+    addLog(`📋 Tab ID: ${currentTabId}`);
+    addLog(`📋 URL: ${tab.url}`);
+    
+    // Check if on HH.ru
+    if (!tab.url.includes('hh.ru')) {
+      addLog('❌ Not on HH.ru page');
+      return;
+    }
+    
+    addLog('✅ On HH.ru page');
+    
+  } catch (error) {
+    console.error('❌ Tab error:', error);
+    addLog(`❌ Tab error: ${error.message}`);
+  }
   
-  // Check if we're on HH.ru
-  if (!tab.url.includes('hh.ru')) {
-    showError('This extension only works on HH.ru pages');
-    return;
+  // Set up button listeners
+  const sendBtn = document.getElementById('quickSendBtn');
+  const testBtn = document.getElementById('testBtn');
+  
+  if (sendBtn) {
+    sendBtn.addEventListener('click', sendQuickMessage);
+    console.log('✅ Send button listener added');
+  } else {
+    console.log('❌ Send button not found');
+  }
+  
+  if (testBtn) {
+    testBtn.addEventListener('click', testLogging);
+    console.log('✅ Test button listener added');
+  } else {
+    console.log('❌ Test button not found');
   }
   
   // Load chat list
@@ -19,37 +311,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadChatList() {
   try {
-    updateStatus('Scanning for chats...');
+    addLog('🔍 Loading chat list...');
     
-    // Request chat list from content script
-    const response = await chrome.tabs.sendMessage(currentTabId, {
-      type: 'GET_CHAT_LIST'
-    });
+    let response;
+    try {
+      response = await chrome.tabs.sendMessage(currentTabId, {
+        type: 'GET_CHAT_LIST'
+      });
+    } catch (commError) {
+      if (commError.message.includes('Could not establish connection')) {
+        addLog('🔄 Content script not loaded for chat list');
+        addLog('💡 Content script will be injected when sending messages');
+        
+        // Show a simple message instead of failing
+        const container = document.getElementById('chatList');
+        container.innerHTML = `
+          <div class="empty">
+            Content script not loaded on this page.<br>
+            Navigate to a specific chat page to see chat list.<br>
+            You can still send messages by typing the format manually.
+          </div>
+        `;
+        return;
+      } else {
+        throw commError;
+      }
+    }
     
     if (response && response.success) {
       renderChatList(response.chats);
-      updateStatus(`Found ${response.chats.length} chats`);
-      
-      // Debug info
-      document.getElementById('debug').textContent = `Debug: ${JSON.stringify(response, null, 2)}`;
+      addLog(`✅ Found ${response.chats.length} chats`);
     } else {
-      showError('Failed to get chat list: ' + (response?.error || 'Unknown error'));
+      addLog('❌ Failed to get chat list');
     }
   } catch (error) {
-    showError('Failed to communicate with page: ' + error.message);
-    
-    // Try to inject content script if it's not loaded
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTabId },
-        files: ['content.js']
-      });
-      
-      // Try again after injection
-      setTimeout(loadChatList, 1000);
-    } catch (injectionError) {
-      showError('Content script injection failed. Try refreshing the page.');
-    }
+    console.error('❌ Chat list error:', error);
+    addLog(`❌ Chat list error: ${error.message}`);
   }
 }
 
@@ -57,7 +354,7 @@ function renderChatList(chats) {
   const container = document.getElementById('chatList');
   
   if (!chats || !chats.length) {
-    container.innerHTML = '<div class="empty">No active chats found</div>';
+    container.innerHTML = '<div class="empty">No chats found</div>';
     return;
   }
   
@@ -80,166 +377,40 @@ function renderChatList(chats) {
 }
 
 function selectChat(chatId, chatName) {
-  // Fill the quick format input with template
-  document.getElementById('quickFormat').value = `chat:${chatId}:`;
-  updateStatus(`Selected chat: ${chatName} (ID: ${chatId})`);
-  addLog(`Selected chat ${chatId}: ${chatName}`, 'info');
+  console.log('📋 Chat selected:', chatId, chatName);
+  addLog(`📋 Selected: ${chatName} (${chatId})`);
   
-  // Highlight the selected chat
-  document.querySelectorAll('.chat-item').forEach(item => {
-    item.style.backgroundColor = '';
-  });
-  
-  event.target.closest('.chat-item').style.backgroundColor = '#e3f2fd';
-  
-  // Focus on message input and position cursor at the end
+  // Fill input
   const input = document.getElementById('quickFormat');
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
-}
-
-async function sendMessage() {
-  // Remove this function since we're only using quick format
-}
-
-async function sendQuickMessage() {
-  const quickFormat = document.getElementById('quickFormat').value.trim();
-  
-  addLog(`Attempting to parse: "${quickFormat}"`, 'info');
-  
-  // Parse format: chat:ID:message
-  const match = quickFormat.match(/^chat:(\d+):(.+)$/);
-  
-  if (!match) {
-    const error = 'Invalid format. Use: chat:4644696158:Привет';
-    showError(error);
-    addLog(`Parse failed: ${error}`, 'error');
-    return;
-  }
-  
-  const chatId = match[1];
-  const message = match[2];
-  
-  addLog(`Parsed - Chat ID: ${chatId}, Message: "${message}"`, 'success');
-  await sendMessageToChat(chatId, message);
-}
-
-async function sendMessageToChat(chatId, message) {
-  try {
-    updateStatus('Sending message...');
-    addLog(`Starting message send to chat ${chatId}`, 'info');
-    
-    // Disable send button
-    const sendBtn = document.getElementById('quickSendBtn');
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Sending...';
-    
-    addLog('Communicating with content script...', 'info');
-    
-    // Send message via content script
-    const response = await chrome.tabs.sendMessage(currentTabId, {
-      type: 'SEND_MESSAGE',
-      chatId: chatId,
-      text: message
-    });
-    
-    addLog(`Content script response: ${JSON.stringify(response)}`, 'info');
-    
-    if (response && response.success) {
-      const successMsg = `✅ Message sent to chat ${chatId}!`;
-      showSuccess(successMsg);
-      updateStatus('Message sent successfully');
-      addLog(successMsg, 'success');
-      
-      // Clear input
-      document.getElementById('quickFormat').value = '';
-      
-      // Refresh chat list after a moment
-      setTimeout(loadChatList, 2000);
-    } else {
-      const errorMsg = `❌ Send failed: ${response?.error || 'Unknown error'}`;
-      showError(errorMsg);
-      addLog(errorMsg, 'error');
-    }
-    
-  } catch (error) {
-    const errorMsg = `❌ Communication error: ${error.message}`;
-    showError(errorMsg);
-    addLog(errorMsg, 'error');
-  } finally {
-    // Re-enable send button
-    const sendBtn = document.getElementById('quickSendBtn');
-    sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+  if (input) {
+    input.value = `chat:${chatId}:`;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
   }
 }
 
 function copyToClipboard(text) {
   navigator.clipboard.writeText(text).then(() => {
-    showSuccess(`Copied: ${text}`);
+    addLog(`📋 Copied: ${text}`);
   }).catch(err => {
-    showError('Failed to copy to clipboard');
+    addLog('❌ Copy failed');
   });
 }
 
 function copyQuickFormat(chatId) {
   const format = `chat:${chatId}:`;
   navigator.clipboard.writeText(format).then(() => {
-    showSuccess(`Copied format: ${format}`);
-    addLog(`Copied to clipboard: ${format}`, 'info');
-    // Also fill the quick format input
-    document.getElementById('quickFormat').value = format;
-    // Focus on the end of the input
+    addLog(`📋 Copied format: ${format}`);
+    
     const input = document.getElementById('quickFormat');
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    if (input) {
+      input.value = format;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
   }).catch(err => {
-    const errorMsg = 'Failed to copy to clipboard';
-    showError(errorMsg);
-    addLog(errorMsg, 'error');
+    addLog('❌ Copy failed');
   });
-}
-
-function addLog(message, type = 'info') {
-  const logContainer = document.getElementById('logContainer');
-  const logEntry = document.createElement('div');
-  logEntry.className = `log-entry log-${type}`;
-  
-  const time = new Date().toLocaleTimeString();
-  logEntry.innerHTML = `<span class="log-time">${time}</span>${message}`;
-  
-  logContainer.appendChild(logEntry);
-  
-  // Auto-scroll to bottom
-  logContainer.scrollTop = logContainer.scrollHeight;
-  
-  // Keep only last 20 log entries
-  const entries = logContainer.children;
-  while (entries.length > 20) {
-    logContainer.removeChild(entries[0]);
-  }
-}
-
-function updateStatus(text) {
-  document.getElementById('status').textContent = text;
-}
-
-function showError(message) {
-  const errorDiv = document.getElementById('error');
-  errorDiv.textContent = message;
-  errorDiv.style.display = 'block';
-  setTimeout(() => {
-    errorDiv.style.display = 'none';
-  }, 5000);
-}
-
-function showSuccess(message) {
-  const successDiv = document.getElementById('success');
-  successDiv.textContent = message;
-  successDiv.style.display = 'block';
-  setTimeout(() => {
-    successDiv.style.display = 'none';
-  }, 3000);
 }
 
 function escapeHtml(text) {

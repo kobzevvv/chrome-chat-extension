@@ -19,29 +19,64 @@ const SELECTORS = {
     SEND_BUTTON: 'button[data-qa="chatik-do-send-message"], .send-button, button[type="submit"]'
 };
 
-console.log('HH Chat Extension: Content script loaded');
+console.log('🚀 HH Chat Extension: Content script loaded at', new Date().toLocaleTimeString());
+console.log('📍 Current URL:', window.location.href);
+console.log('📋 User agent:', navigator.userAgent.substring(0, 100));
+
+// Extract chat ID from current URL
+const currentChatId = extractChatIdFromUrl(window.location.href);
+console.log('📋 Current chat ID:', currentChatId);
+
+// Announce readiness to background script
+if (currentChatId) {
+  console.log('📡 Announcing readiness to background script...');
+  chrome.runtime.sendMessage({
+    type: 'CONTENT_SCRIPT_READY',
+    chatId: currentChatId,
+    url: window.location.href
+  }).then(response => {
+    console.log('📨 Background script response:', response);
+  }).catch(error => {
+    console.log('❌ Failed to contact background script:', error);
+  });
+} else {
+  console.log('⚠️ No chat ID found in URL, not announcing readiness');
+}
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Content script received message:', message);
+  console.log('📨 Content script received message:', message);
+  console.log('🕐 At time:', new Date().toLocaleTimeString());
   
   if (message.type === 'GET_CHAT_LIST') {
+    console.log('🔍 Processing GET_CHAT_LIST request...');
     getChatList().then(result => {
+      console.log('✅ GET_CHAT_LIST completed:', result);
       sendResponse(result);
     }).catch(error => {
+      console.error('❌ GET_CHAT_LIST failed:', error);
       sendResponse({success: false, error: error.message});
     });
     return true; // Keep message channel open
   }
   
   if (message.type === 'SEND_MESSAGE') {
+    console.log('📤 Processing SEND_MESSAGE request...');
+    console.log('   Chat ID:', message.chatId);
+    console.log('   Message:', message.text);
+    
     sendMessage(message.chatId, message.text).then(result => {
+      console.log('✅ SEND_MESSAGE completed:', result);
       sendResponse(result);
     }).catch(error => {
+      console.error('❌ SEND_MESSAGE failed:', error);
       sendResponse({success: false, error: error.message});
     });
     return true;
   }
+  
+  console.log('❓ Unknown message type:', message.type);
+  sendResponse({success: false, error: 'Unknown message type'});
 });
 
 // Function to extract chat ID from URL

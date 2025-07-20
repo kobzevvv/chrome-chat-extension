@@ -6,17 +6,22 @@
     "permissions": [
       "activeTab",
       "storage",
-      "tabs"
+      "tabs",
+      "scripting"
     ],
     "host_permissions": [
-      "*://*.hh.ru/chat/*"
+      "*://*.hh.ru/*",
+      "*://hh.ru/*"
     ],
     "background": {
       "service_worker": "background.js"
     },
     "content_scripts": [
       {
-        "matches": ["*://*.hh.ru/chat/*"],
+        "matches": [
+          "*://*.hh.ru/*",
+          "*://hh.ru/*"
+        ],
         "js": ["content.js"],
         "run_at": "document_idle"
       }
