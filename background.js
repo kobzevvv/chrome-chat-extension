@@ -1,5 +1,5 @@
 // Background service worker - the "supervisor"
-console.log('🚀 HH Chat Extension: Background service worker loaded');
+console.log('🚀 HH Chat Extension: Background service worker loaded at', new Date().toLocaleTimeString());
 
 // Queue of pending messages to send
 let messageQueue = [];
@@ -7,19 +7,31 @@ let isProcessing = false;
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('📨 Background received message:', message);
+  console.log('📨 Background received message at', new Date().toLocaleTimeString(), ':', message);
+  
+  if (message.type === 'PING') {
+    console.log('🏓 Ping received, sending pong');
+    sendResponse({ success: true, message: 'Pong from background service', timestamp: Date.now() });
+    return true;
+  }
   
   if (message.type === 'SEND_MESSAGE_BACKGROUND') {
+    console.log('📤 Processing send message request...');
     handleMessageSendRequest(message);
     sendResponse({ success: true, message: 'Message queued for sending' });
+    return true;
   }
   
   if (message.type === 'CONTENT_SCRIPT_READY') {
+    console.log('📋 Content script ready notification received');
     // Content script is ready and asking if it should send a message
     handleContentScriptReady(sender.tab.id, message.chatId);
     sendResponse({ success: true });
+    return true;
   }
   
+  console.log('❓ Unknown message type:', message.type);
+  sendResponse({ success: false, error: 'Unknown message type' });
   return true;
 });
 
