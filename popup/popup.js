@@ -5,112 +5,84 @@ document.addEventListener('DOMContentLoaded', async () => {
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   currentTabId = tab.id;
   
-  // Check if we're on HH.ru chat page
-  if (!tab.url.includes('hh.ru/chat/')) {
-    showError('This extension only works on HH.ru chat pages');
+  updateStatus(`Current URL: ${tab.url.substring(0, 50)}...`);
+  
+  // Check if we're on HH.ru
+  if (!tab.url.includes('hh.ru')) {
+    showError('This extension only works on HH.ru pages');
     return;
   }
   
-  // Load chat state
-  loadChatState();
-  
-  // Setup event listeners
-  document.getElementById('sendButton').addEventListener('click', sendMessage);
-  document.getElementById('messageInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      sendMessage();
-    }
-  });
+  // Load chat list
+  loadChatList();
 });
 
-async function loadChatState() {
+async function loadChatList() {
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'GET_STATE',
-      tabId: currentTabId
+    updateStatus('Scanning for chats...');
+    
+    // Request chat list from content script
+    const response = await chrome.tabs.sendMessage(currentTabId, {
+      type: 'GET_CHAT_LIST'
     });
     
-    renderMessages(response.messages || []);
-    updateStatus(`Last updated: ${new Date(response.timestamp).toLocaleTimeString()}`);
+    if (response && response.success) {
+      renderChatList(response.chats);
+      updateStatus(`Found ${response.chats.length} chats`);
+      
+      // Debug info
+      document.getElementById('debug').textContent = `Debug: ${JSON.stringify(response, null, 2)}`;
+    } else {
+      showError('Failed to get chat list: ' + (response?.error || 'Unknown error'));
+    }
   } catch (error) {
-    showError('Failed to load chat state: ' + error.message);
+    showError('Failed to communicate with page: ' + error.message);
+    
+    // Try to inject content script if it's not loaded
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        files: ['content.js']
+      });
+      
+      // Try again after injection
+      setTimeout(loadChatList, 1000);
+    } catch (injectionError) {
+      showError('Content script injection failed. Try refreshing the page.');
+    }
   }
 }
 
-function renderMessages(messages) {
-  const container = document.getElementById('messages');
+function renderChatList(chats) {
+  const container = document.getElementById('chatList');
   
-  if (!messages.length) {
-    container.innerHTML = '<div class="empty">No messages yet</div>';
+  if (!chats || !chats.length) {
+    container.innerHTML = '<div class="empty">No active chats found</div>';
     return;
   }
   
-  container.innerHTML = messages.map(msg => {
-    const time = formatTimestamp(msg.ts);
-    const className = msg.me ? 'message me' : 'message them';
-    
-    return `
-      <div class="${className}">
-        <div>${escapeHtml(msg.text)}</div>
-        <div class="message-time">${time}</div>
+  container.innerHTML = chats.map((chat, index) => `
+    <div class="chat-item" onclick="selectChat('${chat.id}')">
+      <div class="chat-name">${escapeHtml(chat.name || `Chat #${index + 1}`)}</div>
+      <div class="chat-preview">${escapeHtml(chat.lastMessage || 'No messages')}</div>
+      <div class="chat-meta">
+        <span>Messages: ${chat.messageCount || 0}</span>
+        <span>${chat.isActive ? '🟢 Active' : '⚪ Inactive'}</span>
       </div>
-    `;
-  }).join('');
-  
-  // Scroll to bottom
-  container.scrollTop = container.scrollHeight;
+    </div>
+  `).join('');
 }
 
-async function sendMessage() {
-  const input = document.getElementById('messageInput');
-  const button = document.getElementById('sendButton');
-  const text = input.value.trim();
+function selectChat(chatId) {
+  // TODO: Handle chat selection
+  updateStatus(`Selected chat: ${chatId}`);
   
-  if (!text) return;
+  // For now, just highlight the selected chat
+  document.querySelectorAll('.chat-item').forEach(item => {
+    item.style.backgroundColor = '';
+  });
   
-  // Disable UI while sending
-  button.disabled = true;
-  button.textContent = 'Sending...';
-  input.disabled = true;
-  
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'SEND_MESSAGE',
-      tabId: currentTabId,
-      text: text
-    });
-    
-    if (response.success) {
-      input.value = '';
-      // Reload chat state to see the new message
-      setTimeout(loadChatState, 1000);
-    } else {
-      showError('Failed to send message: ' + (response.error || 'Unknown error'));
-    }
-  } catch (error) {
-    showError('Failed to send message: ' + error.message);
-  } finally {
-    // Re-enable UI
-    button.disabled = false;
-    button.textContent = 'Send';
-    input.disabled = false;
-    input.focus();
-  }
-}
-
-function formatTimestamp(ts) {
-  if (typeof ts === 'string') {
-    return ts; // If already formatted
-  }
-  
-  const date = new Date(ts);
-  const now = new Date();
-  
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-  } else {
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-  }
+  event.target.closest('.chat-item').style.backgroundColor = '#e3f2fd';
 }
 
 function updateStatus(text) {

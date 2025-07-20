@@ -1,120 +1,28 @@
-// TODO: Update these selectors by inspecting HH.ru chat DOM structure
-// Common selectors that might need adjustment:
+// Simple selectors - these will need to be updated based on actual HH.ru DOM
+// TODO: Inspect HH.ru pages to find correct selectors
 const SELECTORS = {
-    // TODO: Inspect DOM to find actual message container
-    ROOT: '[data-qa="chat-messages"], .chat-messages, #chat-messages',
-    // TODO: Inspect DOM to find actual message input field
-    INPUT: '[data-qa="chat-input"], .chat-input input, textarea[placeholder*="сообщение"]',
-    // TODO: Inspect DOM to find actual send button
-    SEND: '[data-qa="send-message"], .send-button, button[type="submit"]',
-    // TODO: Inspect DOM to find individual message elements
-    MESSAGE: '[data-qa="message"], .message-item, .chat-message'
+    // Chat list selectors (for main chat page)
+    CHAT_LIST: '.chat-list, [data-qa="chat-list"], .conversations, .dialog-list',
+    CHAT_ITEM: '.chat-item, [data-qa="chat-item"], .conversation, .dialog-item',
+    
+    // Individual chat selectors  
+    CHAT_NAME: '.chat-name, [data-qa="chat-name"], .contact-name, .dialog-name',
+    LAST_MESSAGE: '.last-message, [data-qa="last-message"], .preview',
+    MESSAGE_COUNT: '.unread-count, [data-qa="message-count"], .badge',
+    
+    // Message selectors (for chat detail pages)
+    MESSAGE_CONTAINER: '.messages, [data-qa="messages"], .chat-messages',
+    MESSAGE_ITEM: '.message, [data-qa="message"], .chat-message'
   };
   
-  let observer;
-  let lastSnapshotHash = '';
+  console.log('HH Chat Extension: Content script loaded');
   
-  function init() {
-    console.log('HH Chat Extension: Initializing...');
-    
-    // Wait for chat to load
-    setTimeout(() => {
-      setupMutationObserver();
-      dumpChat(); // Initial snapshot
-    }, 2000);
-  }
-  
-  function setupMutationObserver() {
-    const root = document.querySelector(SELECTORS.ROOT);
-    if (!root) {
-      console.warn('HH Chat Extension: Message root not found. Selectors may need updating.');
-      return;
-    }
-  
-    observer = new MutationObserver((mutations) => {
-      let hasNewMessages = false;
-      mutations.forEach(mutation => {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          hasNewMessages = true;
-        }
-      });
-      
-      if (hasNewMessages) {
-        setTimeout(dumpChat, 500); // Debounce
-      }
-    });
-  
-    observer.observe(root, {
-      childList: true,
-      subtree: true
-    });
-    
-    console.log('HH Chat Extension: Mutation observer setup complete');
-  }
-  
-  function dumpChat() {
-    const messages = [];
-    
-    // TODO: Update message selector and data extraction logic based on actual HH.ru DOM
-    const messageElements = document.querySelectorAll(SELECTORS.MESSAGE);
-    
-    messageElements.forEach((element, index) => {
-      try {
-        // TODO: Adjust these selectors based on actual message structure
-        const textElement = element.querySelector('.message-text, .text, p') || element;
-        const text = textElement.textContent?.trim() || '';
-        
-        if (!text) return;
-        
-        // TODO: Implement proper detection of own messages vs received messages
-        // This is a placeholder - inspect DOM to find actual indicators
-        const isOwnMessage = element.classList.contains('own-message') || 
-                            element.classList.contains('outgoing') ||
-                            element.querySelector('.own-message, .outgoing') !== null;
-        
-        // TODO: Extract actual timestamp if available in DOM
-        const timestampElement = element.querySelector('.timestamp, .time, [data-time]');
-        const timestamp = timestampElement ? 
-          timestampElement.textContent || timestampElement.getAttribute('data-time') :
-          Date.now() - (messageElements.length - index) * 1000; // Fallback
-        
-        messages.push({
-          id: `msg_${index}_${Date.now()}`,
-          me: isOwnMessage,
-          ts: timestamp,
-          text: text
-        });
-      } catch (error) {
-        console.warn('Error parsing message element:', error);
-      }
-    });
-  
-    const snapshot = {
-      messages,
-      timestamp: Date.now(),
-      url: window.location.href
-    };
-    
-    // Avoid duplicate snapshots
-    const currentHash = JSON.stringify(messages);
-    if (currentHash === lastSnapshotHash) {
-      return;
-    }
-    lastSnapshotHash = currentHash;
-  
-    // Send to background script
-    chrome.runtime.sendMessage({
-      type: 'CHAT_SNAPSHOT',
-      data: snapshot
-    }).catch(error => {
-      console.warn('Failed to send snapshot:', error);
-    });
-  }
-  
-  // Listen for message injection requests
+  // Listen for messages from popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'INJECT_MESSAGE') {
-      injectMessage(message.text).then(result => {
+    console.log('Content script received message:', message);
+    
+    if (message.type === 'GET_CHAT_LIST') {
+      getChatList().then(result => {
         sendResponse(result);
       }).catch(error => {
         sendResponse({success: false, error: error.message});
@@ -123,45 +31,237 @@ const SELECTORS = {
     }
   });
   
-  async function injectMessage(text) {
-    // TODO: Update input selector if needed
-    const input = document.querySelector(SELECTORS.INPUT);
-    if (!input) {
-      throw new Error('Message input not found. Check INPUT selector.');
+  async function getChatList() {
+    try {
+      console.log('Scanning for chats on:', window.location.href);
+      
+      const chats = [];
+      const url = window.location.href;
+      
+      // Method 1: Look for chat list elements
+      const chatListSelectors = SELECTORS.CHAT_LIST.split(', ');
+      let chatListContainer = null;
+      
+      for (const selector of chatListSelectors) {
+        chatListContainer = document.querySelector(selector);
+        if (chatListContainer) {
+          console.log('Found chat list container with selector:', selector);
+          break;
+        }
+      }
+      
+      if (chatListContainer) {
+        // Found a chat list container, extract individual chats
+        const chatItemSelectors = SELECTORS.CHAT_ITEM.split(', ');
+        let chatItems = [];
+        
+        for (const selector of chatItemSelectors) {
+          chatItems = chatListContainer.querySelectorAll(selector);
+          if (chatItems.length > 0) {
+            console.log(`Found ${chatItems.length} chat items with selector:`, selector);
+            break;
+          }
+        }
+        
+        chatItems.forEach((item, index) => {
+          const chat = extractChatInfo(item, index);
+          if (chat) chats.push(chat);
+        });
+      }
+      
+      // Method 2: Look for any elements that might be chats (fallback)
+      if (chats.length === 0) {
+        console.log('No chat list found, trying generic approach...');
+        
+        // Look for common patterns
+        const possibleChats = document.querySelectorAll('a[href*="chat"], div[class*="chat"], div[class*="dialog"]');
+        console.log('Found possible chat elements:', possibleChats.length);
+        
+        possibleChats.forEach((item, index) => {
+          if (index < 20) { // Limit to avoid too many false positives
+            const chat = extractChatInfo(item, index, true);
+            if (chat && chat.name) chats.push(chat);
+          }
+        });
+      }
+      
+      // Method 3: If we're on a specific chat page, extract current chat info
+      if (chats.length === 0 && url.includes('/chat/')) {
+        console.log('Looks like individual chat page, extracting current chat...');
+        
+        const currentChat = extractCurrentChatInfo();
+        if (currentChat) chats.push(currentChat);
+      }
+      
+      // Method 4: Debug - show all elements for analysis
+      if (chats.length === 0) {
+        console.log('No chats found, showing debug info...');
+        
+        // Get some DOM structure info for debugging
+        const bodyClasses = document.body.className;
+        const mainContent = document.querySelector('main, #main, .main-content, .content');
+        const allLinks = document.querySelectorAll('a[href*="hh.ru"]').length;
+        
+        chats.push({
+          id: 'debug',
+          name: `Debug Info - ${document.title}`,
+          lastMessage: `Body classes: ${bodyClasses.substring(0, 100)}`,
+          messageCount: allLinks,
+          isActive: true,
+          url: url
+        });
+      }
+      
+      console.log('Final chat list:', chats);
+      
+      return {
+        success: true,
+        chats: chats,
+        url: url,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      console.error('Error getting chat list:', error);
+      throw error;
     }
-  
-    // Focus the input
-    input.focus();
-    
-    // Clear existing text
-    input.value = '';
-    
-    // Insert new text
-    document.execCommand('insertText', false, text);
-    
-    // Alternative method if execCommand doesn't work
-    if (input.value !== text) {
-      input.value = text;
-      input.dispatchEvent(new Event('input', {bubbles: true}));
-      input.dispatchEvent(new Event('change', {bubbles: true}));
-    }
-    
-    // Find and click send button
-    // TODO: Update send button selector if needed
-    const sendButton = document.querySelector(SELECTORS.SEND);
-    if (!sendButton) {
-      throw new Error('Send button not found. Check SEND selector.');
-    }
-    
-    // Wait a moment for text to be processed
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    sendButton.click();
-    
-    return {success: true, message: 'Message sent successfully'};
   }
   
-  // Initialize when DOM is ready
+  function extractChatInfo(element, index, isGeneric = false) {
+    try {
+      // Try to extract chat name
+      let name = '';
+      const nameSelectors = SELECTORS.CHAT_NAME.split(', ');
+      
+      for (const selector of nameSelectors) {
+        const nameEl = element.querySelector(selector);
+        if (nameEl) {
+          name = nameEl.textContent?.trim();
+          break;
+        }
+      }
+      
+      // Fallback name extraction
+      if (!name && !isGeneric) {
+        name = element.textContent?.trim().split('\n')[0]?.substring(0, 50) || `Chat #${index + 1}`;
+      } else if (!name && isGeneric) {
+        // For generic elements, be more selective
+        const text = element.textContent?.trim();
+        if (text && text.length > 3 && text.length < 100 && !text.includes('http')) {
+          name = text.split('\n')[0]?.substring(0, 50);
+        }
+      }
+      
+      if (!name) return null;
+      
+      // Try to extract last message
+      let lastMessage = '';
+      const messageSelectors = SELECTORS.LAST_MESSAGE.split(', ');
+      
+      for (const selector of messageSelectors) {
+        const msgEl = element.querySelector(selector);
+        if (msgEl) {
+          lastMessage = msgEl.textContent?.trim().substring(0, 100);
+          break;
+        }
+      }
+      
+      // Try to extract message count
+      let messageCount = 0;
+      const countSelectors = SELECTORS.MESSAGE_COUNT.split(', ');
+      
+      for (const selector of countSelectors) {
+        const countEl = element.querySelector(selector);
+        if (countEl) {
+          const countText = countEl.textContent?.trim();
+          const count = parseInt(countText);
+          if (!isNaN(count)) {
+            messageCount = count;
+            break;
+          }
+        }
+      }
+      
+      // Extract URL if it's a link
+      let chatUrl = '';
+      if (element.tagName === 'A') {
+        chatUrl = element.href;
+      } else {
+        const link = element.querySelector('a[href*="chat"]');
+        if (link) chatUrl = link.href;
+      }
+      
+      return {
+        id: `chat_${index}_${Date.now()}`,
+        name: name,
+        lastMessage: lastMessage || 'No preview available',
+        messageCount: messageCount,
+        isActive: messageCount > 0 || chatUrl.includes(window.location.pathname),
+        url: chatUrl || window.location.href
+      };
+      
+    } catch (error) {
+      console.error('Error extracting chat info:', error);
+      return null;
+    }
+  }
+  
+  function extractCurrentChatInfo() {
+    try {
+      // Try to get chat title from page title or header
+      let name = document.title;
+      
+      // Look for chat header elements
+      const headerSelectors = ['h1', '.chat-header', '[data-qa="chat-title"]', '.page-title'];
+      for (const selector of headerSelectors) {
+        const headerEl = document.querySelector(selector);
+        if (headerEl && headerEl.textContent.trim()) {
+          name = headerEl.textContent.trim();
+          break;
+        }
+      }
+      
+      // Count messages on current page
+      const messageSelectors = SELECTORS.MESSAGE_ITEM.split(', ');
+      let messageCount = 0;
+      
+      for (const selector of messageSelectors) {
+        const messages = document.querySelectorAll(selector);
+        if (messages.length > 0) {
+          messageCount = messages.length;
+          break;
+        }
+      }
+      
+      // Get last message
+      let lastMessage = 'Active chat';
+      if (messageCount > 0) {
+        // Try to get the last message text
+        const messageElements = document.querySelectorAll(messageSelectors[0]);
+        const lastMsg = messageElements[messageElements.length - 1];
+        if (lastMsg) {
+          lastMessage = lastMsg.textContent?.trim().substring(0, 100) || 'Recent message';
+        }
+      }
+      
+      return {
+        id: `current_chat_${Date.now()}`,
+        name: name.replace(' - hh.ru', '').substring(0, 50),
+        lastMessage: lastMessage,
+        messageCount: messageCount,
+        isActive: true,
+        url: window.location.href
+      };
+      
+    } catch (error) {
+      console.error('Error extracting current chat info:', error);
+      return null;
+    }
+  }
+  
+  // Initialize
+  console.log('HH Chat Extension: Content script initialized');
+  ``` is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
