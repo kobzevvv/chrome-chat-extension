@@ -1,7 +1,18 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { 
+  initDatabase, 
+  createTables, 
+  saveChat, 
+  saveMessages, 
+  getRecentMessages, 
+  getChatStats, 
+  getAllChats 
+} = require('./database');
+
 const app = express();
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(cors());
@@ -14,38 +25,171 @@ app.use((req, res, next) => {
 });
 
 // Main inbox endpoint for receiving chat snapshots
-app.post('/inbox', (req, res) => {
-  const { source, timestamp, data } = req.body;
-  
-  console.log('\n=== CHAT SNAPSHOT RECEIVED ===');
-  console.log('Source:', source);
-  console.log('Timestamp:', new Date(timestamp).toISOString());
-  console.log('URL:', data.url);
-  console.log('Message Count:', data.messages.length);
-  
-  if (data.messages.length > 0) {
-    console.log('\nRecent Messages:');
-    data.messages.slice(-3).forEach((msg, i) => {
-      const sender = msg.me ? 'ME' : 'THEM';
-      const time = typeof msg.ts === 'string' ? msg.ts : new Date(msg.ts).toLocaleTimeString();
-      console.log(`  [${sender}] ${time}: ${msg.text.substring(0, 100)}${msg.text.length > 100 ? '...' : ''}`);
+app.post('/inbox', async (req, res) => {
+  try {
+    const { source, timestamp, data } = req.body;
+    
+    console.log('\n=== CHAT SNAPSHOT RECEIVED ===');
+    console.log('Source:', source);
+    console.log('Timestamp:', new Date(timestamp).toISOString());
+    console.log('URL:', data.url);
+    console.log('Message Count:', data.messages.length);
+    
+    if (data.messages.length > 0) {
+      console.log('\nRecent Messages:');
+      data.messages.slice(-3).forEach((msg, i) => {
+        const sender = msg.me ? 'ME' : 'THEM';
+        const time = typeof msg.ts === 'string' ? msg.ts : new Date(msg.ts).toLocaleTimeString();
+        console.log(`  [${sender}] ${time}: ${msg.text.substring(0, 100)}${msg.text.length > 100 ? '...' : ''}`);
+      });
+    }
+    
+    // Extract chat ID from URL
+    const chatIdMatch = data.url.match(/\/chat\/(\d+)/);
+    const chatId = chatIdMatch ? chatIdMatch[1] : `unknown_${timestamp}`;
+    
+    // Save chat information
+    const chatData = {
+      chatId,
+      name: data.chatName || `Chat ${chatId}`,
+      url: data.url
+    };
+    
+    await saveChat(chatData);
+    
+    // Save messages if any
+    let savedMessageIds = [];
+    if (data.messages && data.messages.length > 0) {
+      savedMessageIds = await saveMessages(chatId, data.messages);
+    }
+    
+    console.log(`💾 Saved ${savedMessageIds.length} messages to database`);
+    console.log('================================\n');
+    
+    res.json({ 
+      success: true, 
+      received: timestamp,
+      processed: Date.now(),
+      chatId,
+      savedMessages: savedMessageIds.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error processing chat snapshot:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      received: req.body.timestamp,
+      processed: Date.now()
     });
   }
-  
-  console.log('================================\n');
-  
-  // TODO: Add your automation logic here
-  // Examples:
-  // - Store in database
-  // - Trigger AI responses via OpenAI/Claude API
-  // - Send to n8n workflow
-  // - Forward to other services
-  
-  res.json({ 
-    success: true, 
-    received: timestamp,
-    processed: Date.now()
-  });
+});
+
+// Save multiple chats from chat list
+app.post('/chats/bulk', async (req, res) => {
+  try {
+    const { chats } = req.body;
+    
+    if (!chats || !Array.isArray(chats)) {
+      return res.status(400).json({
+        success: false,
+        error: 'chats array is required'
+      });
+    }
+    
+    const savedChats = [];
+    
+    for (const chat of chats) {
+      if (chat.chatId && chat.name) {
+        const chatData = {
+          chatId: chat.chatId,
+          name: chat.name,
+          url: chat.url || `https://hh.ru/chat/${chat.chatId}`
+        };
+        
+        await saveChat(chatData);
+        savedChats.push(chatData);
+      }
+    }
+    
+    console.log(`💾 Saved ${savedChats.length} chats from bulk import`);
+    
+    res.json({
+      success: true,
+      saved: savedChats.length,
+      chats: savedChats
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving bulk chats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get all chats
+app.get('/chats', async (req, res) => {
+  try {
+    const chats = await getAllChats();
+    res.json({
+      success: true,
+      chats,
+      count: chats.length
+    });
+  } catch (error) {
+    console.error('❌ Error getting chats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get messages for a specific chat
+app.get('/chats/:chatId/messages', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const messages = await getRecentMessages(chatId, limit);
+    const stats = await getChatStats(chatId);
+    
+    res.json({
+      success: true,
+      chatId,
+      messages,
+      stats,
+      count: messages.length
+    });
+  } catch (error) {
+    console.error('❌ Error getting messages:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get chat statistics
+app.get('/chats/:chatId/stats', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const stats = await getChatStats(chatId);
+    
+    res.json({
+      success: true,
+      chatId,
+      stats
+    });
+  } catch (error) {
+    console.error('❌ Error getting chat stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Health check endpoint
@@ -57,12 +201,30 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 HH Chat API server running on http://localhost:${PORT}`);
-  console.log(`📨 Chat snapshots will be received at http://localhost:${PORT}/inbox`);
-  console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
-});
+// Initialize database and start server
+async function startServer() {
+  try {
+    // Initialize database connection
+    initDatabase();
+    
+    // Create tables if they don't exist
+    await createTables();
+    
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`🚀 HH Chat API server running on http://localhost:${PORT}`);
+      console.log(`📨 Chat snapshots will be received at http://localhost:${PORT}/inbox`);
+      console.log(`📊 View all chats at http://localhost:${PORT}/chats`);
+      console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
+      console.log(`\n💡 Don't forget to set your DATABASE_URL environment variable!`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGINT', () => {

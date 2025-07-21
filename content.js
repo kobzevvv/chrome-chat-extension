@@ -13,9 +13,9 @@ const SELECTORS = {
     LAST_MESSAGE: '.last-message, [data-qa="last-message"], .preview',
     MESSAGE_COUNT: '.unread-count, [data-qa="message-count"], .badge',
     
-    // Message selectors (for chat detail pages)
+    // Message selectors (for chat detail pages) - Updated based on HH.ru structure
     MESSAGE_CONTAINER: '.messages, [data-qa="messages"], .chat-messages',
-    MESSAGE_ITEM: '.message, [data-qa="message"], .chat-message',
+    MESSAGE_ITEM: '[data-qa*="chatik-chat-message"], .message--ObAiH0ml6LsDWxjP, .chat-bubble--TFjICp8IMFIhojGy',
     
     // Message input selectors
     MESSAGE_INPUT: 'textarea[data-qa="chatik-new-message-text"], .chat-text-area textarea, .message-input',
@@ -70,6 +70,83 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('❌ SEND_MESSAGE failed:', error);
       sendResponse({success: false, error: error.message});
     });
+    return true;
+  }
+  
+  if (message.type === 'GET_DEBUG_INFO') {
+    console.log('🔍 Processing GET_DEBUG_INFO request...');
+    
+    const debugInfo = {
+      isMonitoring: chatSnapshotInterval !== null,
+      currentUrl: window.location.href,
+      chatId: extractChatIdFromUrl(window.location.href),
+      messageCount: extractMessages().length,
+      lastCapture: lastCaptureTime,
+      lastMessageCount: lastMessageCount
+    };
+    
+    console.log('📊 Debug info:', debugInfo);
+    sendResponse({success: true, debugInfo});
+    return true;
+  }
+  
+  if (message.type === 'INSPECT_MESSAGES_DOM') {
+    console.log('🔍 Processing INSPECT_MESSAGES_DOM request...');
+    
+    // Run the inspection function
+    const messageCandidates = window.inspectMessages();
+    
+    // Analyze results to find best selectors
+    const potentialSelectors = [
+      'div[class*="message"]',
+      'div[class*="chat"]', 
+      'div[class*="dialog"]',
+      'div[class*="bubble"]',
+      'div[class*="text"]',
+      '[data-qa*="message"]',
+      '[data-qa*="chat"]',
+      'p', 'span[class*="text"]',
+      '.msg', '.message', '.chat-message'
+    ];
+    
+    const bestSelectors = [];
+    potentialSelectors.forEach(selector => {
+      const elements = document.querySelectorAll(selector);
+      if (elements.length > 0 && elements.length < 100) {
+        // Filter elements that might contain message text
+        let textElements = 0;
+        elements.forEach(el => {
+          const text = el.textContent?.trim();
+          if (text && text.length > 10 && text.length < 500) {
+            textElements++;
+          }
+        });
+        
+        if (textElements > 0) {
+          bestSelectors.push({
+            selector: selector,
+            count: elements.length,
+            textElements: textElements
+          });
+        }
+      }
+    });
+    
+    // Sort by relevance (prefer fewer elements with more text)
+    bestSelectors.sort((a, b) => {
+      const scoreA = a.textElements / a.count;
+      const scoreB = b.textElements / b.count;
+      return scoreB - scoreA;
+    });
+    
+    const inspection = {
+      totalSelectors: potentialSelectors.length,
+      messageCandidates: messageCandidates.length,
+      bestSelectors: bestSelectors.slice(0, 5) // Top 5 candidates
+    };
+    
+    console.log('📊 DOM Inspection results:', inspection);
+    sendResponse({success: true, inspection});
     return true;
   }
   
@@ -461,5 +538,404 @@ function extractCurrentChatInfo() {
   }
 }
 
+// Capture and send chat messages periodically
+let lastMessageCount = 0;
+let chatSnapshotInterval = null;
+let lastCaptureTime = null;
+const API_ENDPOINT = 'http://localhost:4000/inbox';
+
+function startChatMonitoring() {
+  if (chatSnapshotInterval) {
+    clearInterval(chatSnapshotInterval);
+  }
+  
+  console.log('📊 Starting chat monitoring...');
+  console.log('📍 Current URL:', window.location.href);
+  console.log('📍 Chat ID from URL:', extractChatIdFromUrl(window.location.href));
+  
+  // Check for new messages every 5 seconds
+  chatSnapshotInterval = setInterval(async () => {
+    try {
+      await captureAndSendChatSnapshot();
+    } catch (error) {
+      console.error('❌ Error in chat monitoring:', error);
+    }
+  }, 5000);
+}
+
+async function captureAndSendChatSnapshot() {
+  try {
+    const currentChatId = extractChatIdFromUrl(window.location.href);
+    console.log('🔍 [DEBUG] Chat ID check:', currentChatId);
+    
+    if (!currentChatId) {
+      console.log('🔍 [DEBUG] No chat ID found, skipping...');
+      return; // Not on a chat page
+    }
+    
+    // Extract chat messages
+    const messages = extractMessages();
+    console.log('🔍 [DEBUG] Extracted messages:', messages.length);
+    console.log('🔍 [DEBUG] Previous message count:', lastMessageCount);
+    
+    // Only send if we have messages and the count has changed
+    if (messages.length === 0) {
+      console.log('🔍 [DEBUG] No messages found, skipping...');
+      return;
+    }
+    
+    if (messages.length === lastMessageCount) {
+      console.log('🔍 [DEBUG] Message count unchanged, skipping...');
+      return;
+    }
+    
+    lastMessageCount = messages.length;
+    
+    // Extract chat name
+    const chatName = extractChatName();
+    
+    // Prepare snapshot data
+    const snapshot = {
+      source: 'chrome-extension',
+      timestamp: Date.now(),
+      data: {
+        url: window.location.href,
+        chatName: chatName,
+        messages: messages
+      }
+    };
+    
+    console.log(`📤 Sending chat snapshot: ${messages.length} messages`);
+    
+    // Send to API
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(snapshot)
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ Chat snapshot sent successfully:', result);
+      lastCaptureTime = Date.now();
+    } else {
+      console.error('❌ Failed to send chat snapshot:', response.status, response.statusText);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error capturing chat snapshot:', error);
+  }
+}
+
+function extractMessages() {
+  const messages = [];
+  const messageSelectors = SELECTORS.MESSAGE_ITEM.split(', ');
+  
+  console.log('🔍 [DEBUG] Looking for messages with selectors:', messageSelectors);
+  
+  for (let i = 0; i < messageSelectors.length; i++) {
+    const selector = messageSelectors[i];
+    console.log(`🔍 [DEBUG] Trying selector ${i + 1}/${messageSelectors.length}: "${selector}"`);
+    
+    const messageElements = document.querySelectorAll(selector);
+    console.log(`🔍 [DEBUG] Found ${messageElements.length} elements for selector: "${selector}"`);
+    
+    if (messageElements.length > 0) {
+      messageElements.forEach((msgEl, index) => {
+        const messageData = extractMessageData(msgEl, index);
+        if (messageData) {
+          messages.push(messageData);
+        }
+      });
+      console.log(`🔍 [DEBUG] Extracted ${messages.length} valid messages from ${messageElements.length} elements`);
+      break; // Found messages, stop trying other selectors
+    }
+  }
+  
+  // If no messages found with predefined selectors, try generic approach
+  if (messages.length === 0) {
+    console.log('🔍 [DEBUG] No messages found with predefined selectors, trying generic approach...');
+    
+    // Look for common message patterns
+    const genericSelectors = [
+      'div[class*="message"]',
+      'div[class*="chat"]',
+      '[data-qa*="message"]',
+      '.bubble',
+      '.msg'
+    ];
+    
+    for (const selector of genericSelectors) {
+      const elements = document.querySelectorAll(selector);
+      console.log(`🔍 [DEBUG] Generic selector "${selector}" found ${elements.length} elements`);
+      
+      if (elements.length > 0) {
+        // Show first few elements for debugging
+        elements.forEach((el, idx) => {
+          if (idx < 3) {
+            console.log(`🔍 [DEBUG] Element ${idx}:`, el.outerHTML.substring(0, 200));
+          }
+        });
+        break;
+      }
+    }
+  }
+  
+  return messages;
+}
+
+function extractMessageData(messageElement, index) {
+  try {
+    // Extract message text using HH.ru specific selectors
+    let textElement = messageElement.querySelector('[data-qa="chat-bubble-text"], .chat-bubble-text--XJMldv8jNgMtyLaI, .markdown--po02tUmuyrM7KPYt p');
+    
+    // Fallback to generic selectors
+    if (!textElement) {
+      textElement = messageElement.querySelector('.message-text, .chat-message-text, [data-qa*="text"]');
+    }
+    
+    // Last resort - use the element itself
+    if (!textElement) {
+      textElement = messageElement;
+    }
+    
+    let text = textElement.textContent?.trim() || '';
+    
+    // Clean up text - remove extra whitespace and newlines
+    text = text.replace(/\s+/g, ' ').trim();
+    
+    if (!text || text.length < 2) return null;
+    
+    // Skip if it's just timestamp or metadata
+    if (/^\d{2}:\d{2}$/.test(text) || text.includes('data-qa') || text.includes('class=')) {
+      return null;
+    }
+    
+    // Try to determine if message is from me (outgoing vs incoming)
+    const isFromMe = messageElement.classList.contains('outgoing') || 
+                    messageElement.classList.contains('chat-bubble_outgoing') ||
+                    !messageElement.classList.contains('chat-bubble_incoming') ||
+                    messageElement.querySelector('.chat-bubble_outgoing') !== null;
+    
+    // Try to extract timestamp from HH.ru structure
+    let timestamp = Date.now(); // Default to now
+    const timeElement = messageElement.querySelector('.message-time, .timestamp, time') || 
+                       messageElement.textContent.match(/(\d{2}:\d{2})/);
+    
+    if (timeElement) {
+      let timeText = '';
+      if (typeof timeElement === 'string') {
+        timeText = timeElement;
+      } else if (timeElement.length && timeElement[1]) {
+        timeText = timeElement[1];
+      } else {
+        timeText = timeElement.textContent?.trim();
+      }
+      
+      if (timeText) {
+        const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
+        if (timeMatch) {
+          const now = new Date();
+          const messageTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 
+                                     parseInt(timeMatch[1]), parseInt(timeMatch[2]));
+          timestamp = messageTime.getTime();
+        }
+      }
+    }
+    
+    console.log(`🔍 [DEBUG] Extracted message: "${text.substring(0, 50)}..." (isFromMe: ${isFromMe})`);
+    
+    return {
+      text: text,
+      me: isFromMe,
+      ts: timestamp,
+      index: index
+    };
+  } catch (error) {
+    console.error('Error extracting message data:', error);
+    return null;
+  }
+}
+
+function extractChatName() {
+  // Try to get chat name from page title or header
+  let name = document.title.replace(' - hh.ru', '').trim();
+  
+  // Look for chat header elements
+  const headerSelectors = ['h1', '.chat-header', '[data-qa="chat-title"]', '.page-title', '.chat-name'];
+  for (const selector of headerSelectors) {
+    const headerEl = document.querySelector(selector);
+    if (headerEl && headerEl.textContent.trim()) {
+      name = headerEl.textContent.trim();
+      break;
+    }
+  }
+  
+  return name;
+}
+
+// Start monitoring when on chat page
+if (currentChatId) {
+  startChatMonitoring();
+}
+
+// Stop monitoring when leaving page
+window.addEventListener('beforeunload', () => {
+  if (chatSnapshotInterval) {
+    clearInterval(chatSnapshotInterval);
+  }
+});
+
+// DOM inspection function to help debug message selectors
+window.inspectMessages = function() {
+  console.log('🔍 [INSPECT] Analyzing page DOM for message elements...');
+  console.log('🔍 [INSPECT] Current URL:', window.location.href);
+  
+  // Show all elements that might contain messages
+  const potentialSelectors = [
+    'div[class*="message"]',
+    'div[class*="chat"]', 
+    'div[class*="dialog"]',
+    'div[class*="bubble"]',
+    'div[class*="text"]',
+    '[data-qa*="message"]',
+    '[data-qa*="chat"]',
+    'p', 'span[class*="text"]',
+    '.msg', '.message', '.chat-message'
+  ];
+  
+  console.log('🔍 [INSPECT] Testing selectors:');
+  potentialSelectors.forEach((selector, index) => {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`  ${index + 1}. "${selector}" → ${elements.length} elements`);
+      
+      // Show first few elements
+      for (let i = 0; i < Math.min(3, elements.length); i++) {
+        const el = elements[i];
+        const text = el.textContent?.trim();
+        if (text && text.length > 10 && text.length < 200) {
+          console.log(`     Sample ${i + 1}: "${text.substring(0, 100)}..."`);
+          console.log(`     Classes: ${el.className}`);
+          console.log(`     HTML: ${el.outerHTML.substring(0, 150)}...`);
+        }
+      }
+    }
+  });
+  
+  // Look for any text content that looks like messages
+  console.log('\n🔍 [INSPECT] Looking for potential message text patterns...');
+  const allDivs = document.querySelectorAll('div');
+  let messageCandiates = [];
+  
+  allDivs.forEach((div, index) => {
+    const text = div.textContent?.trim();
+    if (text && text.length > 5 && text.length < 500) {
+      // Skip if it contains child divs (likely container)
+      const childDivs = div.querySelectorAll('div');
+      if (childDivs.length === 0) {
+        messageCandiates.push({
+          element: div,
+          text: text,
+          classes: div.className,
+          id: div.id
+        });
+      }
+    }
+  });
+  
+  console.log(`🔍 [INSPECT] Found ${messageCandiates.length} potential message elements:`);
+  messageCandiates.slice(0, 10).forEach((candidate, index) => {
+    console.log(`  ${index + 1}. "${candidate.text.substring(0, 80)}..."`);
+    console.log(`     Classes: "${candidate.classes}"`);
+    console.log(`     ID: "${candidate.id}"`);
+  });
+  
+  return messageCandiates;
+};
+
+// Test function you can run in browser console
+window.testChatCapture = function() {
+  console.log('🧪 [TEST] Starting manual chat capture test...');
+  console.log('🧪 [TEST] Current URL:', window.location.href);
+  console.log('🧪 [TEST] Chat ID:', extractChatIdFromUrl(window.location.href));
+  
+  const messages = extractMessages();
+  console.log('🧪 [TEST] Extracted messages:', messages);
+  
+  if (messages.length > 0) {
+    const testSnapshot = {
+      source: 'manual-test',
+      timestamp: Date.now(),
+      data: {
+        url: window.location.href,
+        chatName: extractChatName(),
+        messages: messages
+      }
+    };
+    
+    console.log('🧪 [TEST] Test snapshot:', testSnapshot);
+    
+    fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(testSnapshot)
+    }).then(response => {
+      console.log('🧪 [TEST] API Response status:', response.status);
+      return response.json();
+    }).then(result => {
+      console.log('🧪 [TEST] API Response:', result);
+    }).catch(error => {
+      console.error('🧪 [TEST] API Error:', error);
+    });
+  } else {
+    console.log('🧪 [TEST] No messages found to test with');
+    console.log('🧪 [TEST] Running DOM inspection...');
+    window.inspectMessages();
+  }
+};
+
+// Quick test function for HH.ru selectors
+window.testHHSelectors = function() {
+  console.log('🧪 [HH-TEST] Testing HH.ru specific selectors...');
+  
+  // Test the selectors we found from your console output
+  const selectors = [
+    '[data-qa*="chatik-chat-message"]',
+    '.message--ObAiH0ml6LsDWxjP', 
+    '.chat-bubble--TFjICp8IMFIhojGy',
+    '[data-qa="chat-bubble-text"]',
+    '.chat-bubble-text--XJMldv8jNgMtyLaI',
+    '.markdown--po02tUmuyrM7KPYt p'
+  ];
+  
+  selectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    console.log(`🔍 "${selector}" → ${elements.length} elements`);
+    
+    if (elements.length > 0 && elements.length < 20) {
+      elements.forEach((el, idx) => {
+        const text = el.textContent?.trim();
+        if (text && text.length > 5 && text.length < 200) {
+          console.log(`  ${idx + 1}. "${text.substring(0, 80)}..."`);
+        }
+      });
+    }
+  });
+  
+  // Test the main extraction function
+  console.log('\n🧪 [HH-TEST] Testing message extraction...');
+  const messages = extractMessages();
+  console.log(`📬 Found ${messages.length} messages:`, messages);
+};
+
 // Initialize
 console.log('HH Chat Extension: Content script initialized and ready');
+console.log('💡 [TIP] Available console functions:');
+console.log('  - window.testChatCapture() - Test message capture');
+console.log('  - window.inspectMessages() - Inspect DOM for message elements');
+console.log('  - window.testHHSelectors() - Test HH.ru specific selectors');
