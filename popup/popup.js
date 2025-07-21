@@ -2,15 +2,24 @@ console.log('🚀 Popup script starting...');
 
 let currentTabId = null;
 
-// Simple logging function
-function addLog(message) {
+// Enhanced logging function
+function addLog(message, type = 'info') {
   console.log('📋 LOG:', message);
   
   const logContainer = document.getElementById('logContainer');
   if (logContainer) {
     const time = new Date().toLocaleTimeString();
-    logContainer.textContent += `[${time}] ${message}\n`;
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry log-${type}`;
+    logEntry.innerHTML = `<span class="log-time">[${time}]</span>${message}`;
+    
+    logContainer.appendChild(logEntry);
     logContainer.scrollTop = logContainer.scrollHeight;
+    
+    // Keep only last 50 log entries
+    while (logContainer.children.length > 50) {
+      logContainer.removeChild(logContainer.firstChild);
+    }
   } else {
     console.log('❌ logContainer not found');
   }
@@ -19,51 +28,134 @@ function addLog(message) {
 // Test function
 function testLogging() {
   console.log('🧪 TEST BUTTON CLICKED!');
-  addLog('🧪 Test button clicked!');
+  addLog('🧪 Test button clicked!', 'info');
   
   // Test background service
   console.log('🔍 Testing background service...');
-  addLog('🔍 Testing background service...');
+  addLog('🔍 Testing background service...', 'info');
   
   chrome.runtime.sendMessage({
     type: 'PING',
     timestamp: Date.now()
   }).then(response => {
     console.log('✅ Background response:', response);
-    addLog(`✅ Background service works: ${response.message}`);
+    addLog(`✅ Background service works: ${response.message}`, 'success');
   }).catch(error => {
     console.log('❌ Background error:', error);
-    addLog(`❌ Background service error: ${error.message}`);
+    addLog(`❌ Background service error: ${error.message}`, 'error');
   });
+}
+
+// Save chats to database
+async function saveChatsToDatabase(chats) {
+  try {
+    addLog('💾 Saving chats to database...', 'info');
+    
+    const response = await fetch('http://localhost:4000/chats/bulk', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ chats })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      addLog(`✅ Saved ${result.saved} chats to database`, 'success');
+      return result;
+    } else {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+  } catch (error) {
+    addLog(`❌ Failed to save chats: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
+// Get debug info from content script
+async function getDebugInfo() {
+  try {
+    addLog('🔍 Getting debug info from content script...', 'info');
+    
+    const response = await chrome.tabs.sendMessage(currentTabId, {
+      type: 'GET_DEBUG_INFO'
+    });
+    
+    if (response && response.success) {
+      const debugInfo = response.debugInfo;
+      addLog(`📊 Chat monitoring: ${debugInfo.isMonitoring ? 'ON' : 'OFF'}`, debugInfo.isMonitoring ? 'success' : 'error');
+      addLog(`📍 Current URL: ${debugInfo.currentUrl}`, 'info');
+      addLog(`🆔 Chat ID: ${debugInfo.chatId || 'Not detected'}`, debugInfo.chatId ? 'success' : 'error');
+      addLog(`📬 Messages found: ${debugInfo.messageCount}`, 'info');
+      addLog(`📤 Last capture: ${debugInfo.lastCapture ? new Date(debugInfo.lastCapture).toLocaleTimeString() : 'Never'}`, 'info');
+    } else {
+      addLog('❌ Could not get debug info from content script', 'error');
+    }
+  } catch (error) {
+    addLog(`❌ Debug info error: ${error.message}`, 'error');
+  }
+}
+
+// Inspect DOM for message elements
+async function inspectMessagesDOM() {
+  try {
+    addLog('🔍 Inspecting DOM for message elements...', 'info');
+    
+    // Execute the inspection function in the content script context
+    const response = await chrome.tabs.sendMessage(currentTabId, {
+      type: 'INSPECT_MESSAGES_DOM'
+    });
+    
+    if (response && response.success) {
+      const inspection = response.inspection;
+      addLog(`📊 Found ${inspection.totalSelectors} potential selectors`, 'info');
+      addLog(`📋 Found ${inspection.messageCandidates} message candidates`, 'info');
+      
+      if (inspection.bestSelectors && inspection.bestSelectors.length > 0) {
+        addLog(`✅ Best selectors:`, 'success');
+        inspection.bestSelectors.forEach((selector, index) => {
+          addLog(`  ${index + 1}. "${selector.selector}" (${selector.count} elements)`, 'info');
+        });
+      } else {
+        addLog('❌ No good message selectors found', 'error');
+      }
+      
+      addLog('💡 Check browser console for detailed inspection results', 'info');
+    } else {
+      addLog('❌ Could not inspect DOM from content script', 'error');
+    }
+  } catch (error) {
+    addLog(`❌ DOM inspection error: ${error.message}`, 'error');
+  }
 }
 
 // Send message function
 async function sendQuickMessage() {
   console.log('🚀 SEND BUTTON CLICKED');
-  addLog('🚀 Send button clicked');
+  addLog('🚀 Send button clicked', 'info');
   
   try {
     const input = document.getElementById('quickFormat');
     if (!input) {
-      addLog('❌ Input field not found');
+      addLog('❌ Input field not found', 'error');
       return;
     }
     
     const message = input.value.trim();
-    addLog(`📋 Input: "${message}"`);
+    addLog(`📋 Input: "${message}"`, 'info');
     
     // Parse message format
     const match = message.match(/^chat:(\d+):(.+)$/);
     if (!match) {
-      addLog('❌ Invalid format. Use: chat:1234567890:message');
+      addLog('❌ Invalid format. Use: chat:1234567890:message', 'error');
       return;
     }
     
     const chatId = match[1];
     const messageText = match[2];
     
-    addLog(`✅ Chat ID: ${chatId}`);
-    addLog(`✅ Message: "${messageText}"`);
+    addLog(`✅ Chat ID: ${chatId}`, 'success');
+    addLog(`✅ Message: "${messageText}"`, 'success');
     
     // Get send mode
     let sendMode = 'current';
@@ -72,8 +164,8 @@ async function sendQuickMessage() {
       sendMode = modeInput.value;
     }
     
-    addLog(`📋 Mode: ${sendMode}`);
-    addLog(`📤 Sending to background service...`);
+    addLog(`📋 Mode: ${sendMode}`, 'info');
+    addLog(`📤 Sending to background service...`, 'info');
     
     // Send to background
     const response = await chrome.runtime.sendMessage({
@@ -84,15 +176,15 @@ async function sendQuickMessage() {
     });
     
     if (response && response.success) {
-      addLog('✅ Message queued successfully!');
+      addLog('✅ Message queued successfully!', 'success');
       input.value = '';
     } else {
-      addLog('❌ Failed to queue message');
+      addLog('❌ Failed to queue message', 'error');
     }
     
   } catch (error) {
     console.error('❌ Send error:', error);
-    addLog(`❌ Error: ${error.message}`);
+    addLog(`❌ Error: ${error.message}`, 'error');
   }
 }
 
@@ -147,7 +239,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadChatList() {
   try {
-    addLog('🔍 Loading chat list...');
+    addLog('🔍 Loading chat list...', 'info');
     
     const response = await chrome.tabs.sendMessage(currentTabId, {
       type: 'GET_CHAT_LIST'
@@ -155,13 +247,26 @@ async function loadChatList() {
     
     if (response && response.success) {
       renderChatList(response.chats);
-      addLog(`✅ Found ${response.chats.length} chats`);
+      addLog(`✅ Found ${response.chats.length} chats`, 'success');
+      
+      // Save chats to database
+      if (response.chats.length > 0) {
+        try {
+          await saveChatsToDatabase(response.chats);
+        } catch (error) {
+          // Already logged in saveChatsToDatabase
+        }
+      }
+      
+      // Get debug info
+      await getDebugInfo();
+      
     } else {
-      addLog('❌ Failed to get chat list');
+      addLog('❌ Failed to get chat list', 'error');
     }
   } catch (error) {
     console.error('❌ Chat list error:', error);
-    addLog('🔄 Content script not loaded');
+    addLog('🔄 Content script not loaded', 'error');
   }
 }
 
