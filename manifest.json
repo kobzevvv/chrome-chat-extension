@@ -24,6 +24,13 @@
         ],
         "js": ["content.js"],
         "run_at": "document_idle"
+      },
+      {
+        "matches": [
+          "*://*.hh.ru/employer/vacancyresponses*"
+        ],
+        "js": ["content-vacancy-extractor.js"],
+        "run_at": "document_idle"
       }
     ],
     "action": {

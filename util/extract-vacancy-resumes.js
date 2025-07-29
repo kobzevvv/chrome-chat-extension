@@ -82,7 +82,7 @@ async function extractResumeLinks(vacancyUrl) {
     console.log(`Total resume links found: ${allResumeLinks.length}`);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS resume_links_to_extract (
+      CREATE TABLE IF NOT EXISTS resume_links (
         id SERIAL PRIMARY KEY,
         url TEXT NOT NULL UNIQUE,
         vacancy_id TEXT NOT NULL,
@@ -98,7 +98,7 @@ async function extractResumeLinks(vacancyUrl) {
     for (const link of allResumeLinks) {
       try {
         await pool.query(
-          `INSERT INTO resume_links_to_extract (url, vacancy_id, page_number) 
+          `INSERT INTO resume_links (url, vacancy_id, page_number) 
            VALUES ($1, $2, $3) 
            ON CONFLICT (url) DO NOTHING`,
           [link.url, link.vacancyId, link.page]
