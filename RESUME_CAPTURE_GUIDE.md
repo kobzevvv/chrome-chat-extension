@@ -1,5 +1,11 @@
 # Resume Capture Testing Guide
 
+**⚠️ DEPRECATED**: This guide refers to the old resume parsing system that has been removed. 
+The system now uses the `resume_html_content` table and the `extract-resumes.js` script instead.
+See `util/EXTRACT-RESUMES-README.md` for the current approach.
+
+---
+
 This guide walks through testing the HH.ru resume capture functionality end-to-end.
 
 ## Prerequisites

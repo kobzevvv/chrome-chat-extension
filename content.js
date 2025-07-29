@@ -828,13 +828,15 @@ async function captureResume(options = {}) {
       throw new Error('Could not capture resume HTML');
     }
     
-    // Send to API for parsing and storage
-    const result = await sendResumeToAPI(html, window.location.href, options);
+    // NOTE: Resume parsing API removed - now using resume_html_content table
+    // HTML capture still works for manual testing
     
-    console.log('✅ Resume capture completed successfully');
+    console.log('✅ Resume HTML captured successfully');
     return {
       success: true,
-      result: result,
+      html: html,
+      sourceUrl: window.location.href,
+      htmlLength: html.length,
       captured_at: new Date().toISOString()
     };
     
@@ -1031,42 +1033,8 @@ async function fetchPrintVersion(printUrl) {
   }
 }
 
-/**
- * Send resume HTML to API for parsing and storage
- */
-async function sendResumeToAPI(html, sourceUrl, options) {
-  console.log('📄 Sending resume to API for processing...');
-  
-  try {
-    const response = await fetch('http://localhost:4000/resume/parse', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        html: html,
-        sourceUrl: sourceUrl,
-        options: {
-          revealAttempted: options.revealContacts || false
-        }
-      })
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(`API Error ${response.status}: ${errorData.error || response.statusText}`);
-    }
-    
-    const result = await response.json();
-    console.log('✅ Resume processed successfully:', result);
-    
-    return result;
-    
-  } catch (error) {
-    console.error('❌ Failed to send resume to API:', error);
-    throw error;
-  }
-}
+// Resume parsing API removed - now using resume_html_content table directly
+// The sendResumeToAPI function is deprecated
 
 // Resume capture test function
 window.testResumeCapture = function(options = {}) {

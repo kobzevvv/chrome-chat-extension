@@ -1,5 +1,11 @@
 # Resume Extraction CLI
 
+**⚠️ DEPRECATED**: This refers to the old `resume_extracts` table approach.
+The current system uses `resume_html_content` table and `extract-resumes.js` script.
+See `EXTRACT-RESUMES-README.md` for the current approach.
+
+---
+
 A simple command-line tool for extracting and managing HH.ru resume data using an ELT (Extract, Load, Transform) approach.
 
 ## Quick Start
