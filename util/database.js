@@ -102,17 +102,6 @@ async function createTables() {
       )
     `;
 
-    await sql`
-      CREATE TABLE IF NOT EXISTS resume_education (
-        id BIGSERIAL PRIMARY KEY,
-        resume_id TEXT REFERENCES resumes(resume_id) ON DELETE CASCADE,
-        level TEXT,
-        institution TEXT,
-        faculty TEXT,
-        specialty TEXT,
-        graduation_year INT
-      )
-    `;
 
     await sql`
       CREATE TABLE IF NOT EXISTS resume_contacts (
@@ -137,9 +126,6 @@ async function createTables() {
       CREATE INDEX IF NOT EXISTS idx_resume_experience_resume_id ON resume_experience(resume_id)
     `;
 
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_resume_education_resume_id ON resume_education(resume_id)
-    `;
 
     await sql`
       CREATE INDEX IF NOT EXISTS idx_resume_contacts_resume_id ON resume_contacts(resume_id)
@@ -385,7 +371,6 @@ async function saveResume(resumeData) {
 
       // Delete existing experience and education records
       await tx`DELETE FROM resume_experience WHERE resume_id = ${resume_id}`;
-      await tx`DELETE FROM resume_education WHERE resume_id = ${resume_id}`;
       await tx`DELETE FROM resume_contacts WHERE resume_id = ${resume_id}`;
 
       // Insert experience records
@@ -398,15 +383,6 @@ async function saveResume(resumeData) {
         }
       }
 
-      // Insert education records
-      if (education && education.length > 0) {
-        for (const edu of education) {
-          await tx`
-            INSERT INTO resume_education (resume_id, level, institution, faculty, specialty, graduation_year)
-            VALUES (${resume_id}, ${edu.level}, ${edu.institution}, ${edu.faculty}, ${edu.specialty}, ${edu.graduation_year})
-          `;
-        }
-      }
 
       // Insert contact records
       if (contacts && contacts.length > 0) {
@@ -443,9 +419,6 @@ async function getResume(resume_id) {
       SELECT * FROM resume_experience WHERE resume_id = ${resume_id} ORDER BY date_from DESC
     `;
 
-    const education = await sql`
-      SELECT * FROM resume_education WHERE resume_id = ${resume_id} ORDER BY graduation_year DESC
-    `;
 
     const contacts = await sql`
       SELECT * FROM resume_contacts WHERE resume_id = ${resume_id}
@@ -454,7 +427,6 @@ async function getResume(resume_id) {
     return {
       ...resume,
       experience,
-      education,
       contacts
     };
   } catch (error) {
