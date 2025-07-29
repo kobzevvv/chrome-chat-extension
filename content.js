@@ -164,6 +164,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  if (message.type === 'FETCH_RESUME_HTML') {
+    console.log('📥 Processing FETCH_RESUME_HTML request...');
+    console.log('📥 Current page URL:', window.location.href);
+    console.log('📥 Requested URL:', message.url);
+    
+    try {
+      // Since we're already on the resume page, just get the HTML from the DOM
+      const html = document.documentElement.outerHTML;
+      console.log('✅ Got HTML from current page, length:', html.length);
+      sendResponse({ success: true, html });
+    } catch (error) {
+      console.error('❌ Error getting page HTML:', error);
+      sendResponse({ success: false, error: error.message });
+    }
+    
+    return true; // Keep message channel open for async response
+  }
+  
   console.log('❓ Unknown message type:', message.type);
   sendResponse({success: false, error: 'Unknown message type'});
 });

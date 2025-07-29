@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "HH.ru Chat Assistant",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "description": "Automate and monitor HH.ru chat messages",
     "permissions": [
       "activeTab",

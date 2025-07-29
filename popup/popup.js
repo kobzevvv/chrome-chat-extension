@@ -351,6 +351,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('❌ Inspect button not found');
   }
   
+  // Resume extraction button
+  const extractResumesBtn = document.getElementById('extractResumesBtn');
+  if (extractResumesBtn) {
+    extractResumesBtn.addEventListener('click', handleResumeExtraction);
+    console.log('✅ Extract resumes button listener added');
+  } else {
+    console.log('❌ Extract resumes button not found');
+  }
+  
   // Try to load chat list
   loadChatList();
 });
@@ -495,3 +504,54 @@ document.getElementById('vacancyExtractorBtn').addEventListener('click', () => {
     height: 600
   });
 });
+
+// Handle resume extraction
+async function handleResumeExtraction() {
+  const count = document.getElementById('resumeCount').value;
+  const statusDiv = document.getElementById('extractionStatus');
+  const messageEl = document.getElementById('extractionMessage');
+  const extractBtn = document.getElementById('extractResumesBtn');
+  
+  if (!count || count < 1) {
+    alert('Please enter a valid number of resumes to extract');
+    return;
+  }
+  
+  statusDiv.style.display = 'block';
+  extractBtn.disabled = true;
+  messageEl.textContent = `Starting extraction of ${count} resumes...`;
+  
+  try {
+    // Send message to background script for browser-based extraction
+    const result = await chrome.runtime.sendMessage({
+      type: 'EXTRACT_RESUMES_BROWSER',
+      count: parseInt(count)
+    });
+    
+    if (result.success) {
+      const errorInfo = result.errors && result.errors.length > 0 
+        ? `<br><small>Some errors occurred: ${result.errors.length} failed</small>` 
+        : '';
+        
+      messageEl.innerHTML = `
+        <strong style="color: #28a745;">✅ Extraction completed!</strong><br>
+        Successfully extracted ${result.processed} out of ${result.total} resumes.${errorInfo}
+      `;
+      addLog(`📄 Extracted ${result.processed}/${result.total} resumes`, 'success');
+      
+      // Re-enable button after 5 seconds
+      setTimeout(() => {
+        extractBtn.disabled = false;
+        statusDiv.style.display = 'none';
+      }, 5000);
+      
+    } else {
+      throw new Error(result.error || 'Failed to extract resumes');
+    }
+    
+  } catch (error) {
+    messageEl.innerHTML = `<strong style="color: #dc3545;">❌ Error:</strong> ${error.message}`;
+    addLog(`❌ Resume extraction error: ${error.message}`, 'error');
+    extractBtn.disabled = false;
+  }
+}

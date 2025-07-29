@@ -30,6 +30,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  if (message.type === 'EXTRACT_RESUMES_BROWSER') {
+    console.log('📄 Browser-based resume extraction request received');
+    handleBrowserResumeExtraction(message.count)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep message channel open for async response
+  }
+  
   console.log('❓ Unknown message type:', message.type);
   sendResponse({ success: false, error: 'Unknown message type' });
   return true;
@@ -242,6 +250,180 @@ async function handleContentScriptReady(tabId, chatId) {
     }
   } else {
     console.log('📋 No pending message found for tab', tabId);
+  }
+}
+
+// Browser-based resume extraction
+async function handleBrowserResumeExtraction(count) {
+  console.log(`📄 Starting browser-based extraction of ${count} resumes`);
+  
+  try {
+    // First, get unprocessed resume links from the API
+    const apiUrl = 'http://localhost:4000';
+    console.log(`📡 Fetching unprocessed links from: ${apiUrl}/resume-links/unprocessed/${count}`);
+    const response = await fetch(`${apiUrl}/resume-links/unprocessed/${count}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch resume links: ${response.statusText}`);
+    }
+    
+    const { links } = await response.json();
+    console.log(`📦 API response:`, { linksCount: links?.length || 0 });
+    
+    if (!links || links.length === 0) {
+      return { 
+        success: true, 
+        message: 'No unprocessed resume links found',
+        processed: 0
+      };
+    }
+    
+    console.log(`📋 Found ${links.length} unprocessed resume links`);
+    console.log(`📋 First link:`, links[0]);
+    
+    let processed = 0;
+    let errors = [];
+    
+    // Process links in batches to avoid overwhelming the browser
+    const batchSize = 3;
+    console.log(`🔄 Starting batch processing with batch size: ${batchSize}`);
+    
+    for (let i = 0; i < links.length; i += batchSize) {
+      const batch = links.slice(i, i + batchSize);
+      console.log(`📦 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(links.length/batchSize)}, links: ${batch.length}`);
+      
+      const batchPromises = batch.map(link => extractResumeInTab(link));
+      
+      console.log(`⏳ Waiting for batch to complete...`);
+      const results = await Promise.allSettled(batchPromises);
+      
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          processed++;
+        } else {
+          const error = result.status === 'rejected' ? result.reason : result.value.error;
+          errors.push(`${batch[index].url}: ${error}`);
+          console.error(`❌ Failed to extract ${batch[index].url}:`, error);
+        }
+      });
+      
+      // Small delay between batches
+      if (i + batchSize < links.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    console.log(`✅ Browser extraction completed: ${processed}/${links.length} resumes`);
+    
+    return {
+      success: true,
+      message: `Extracted ${processed} out of ${links.length} resumes`,
+      processed,
+      total: links.length,
+      errors: errors.length > 0 ? errors.slice(0, 5) : undefined // Limit error details
+    };
+    
+  } catch (error) {
+    console.error('❌ Browser extraction error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+async function extractResumeInTab(link) {
+  console.log(`🌐 Extracting resume: ${link.url}`);
+  console.log(`🔗 Link object:`, link);
+  
+  try {
+    // Create a tab for extraction
+    console.log(`🆕 Creating tab for URL: ${link.url}`);
+    const tab = await chrome.tabs.create({
+      url: link.url,
+      active: false
+    });
+    console.log(`✅ Tab created with ID: ${tab.id}`);
+    
+    // Wait for tab to load
+    console.log(`⏳ Waiting for tab ${tab.id} to load...`);
+    await waitForTabToLoad(tab.id);
+    
+    // Inject content script if needed
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js']
+    });
+    
+    // Wait a bit for content script to initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Send message to content script to fetch HTML
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'FETCH_RESUME_HTML',
+      url: link.url
+    });
+    
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to fetch HTML');
+    }
+    
+    // Extract resume ID from URL
+    const resumeIdMatch = link.url.match(/\/resume\/([a-f0-9]+)/);
+    const resumeId = resumeIdMatch ? resumeIdMatch[1] : null;
+    
+    if (!resumeId) {
+      throw new Error('Could not extract resume ID from URL');
+    }
+    
+    // Send HTML to API for cleaning and saving
+    const apiUrl = 'http://localhost:4000';
+    const saveResponse = await fetch(`${apiUrl}/save-resume-html`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        resume_id: resumeId,
+        source_url: link.url,
+        html_content: response.html
+      })
+    });
+    
+    if (!saveResponse.ok) {
+      const error = await saveResponse.json();
+      throw new Error(error.error || 'Failed to save resume HTML');
+    }
+    
+    const saveResult = await saveResponse.json();
+    console.log(`✅ Saved resume ${resumeId} (reduced by ${saveResult.reduction_percent}%)`);
+    
+    // Close the tab
+    await chrome.tabs.remove(tab.id);
+    
+    return {
+      success: true,
+      resumeId,
+      reduction: saveResult.reduction_percent
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error extracting ${link.url}:`, error);
+    
+    // Try to close the tab if it exists
+    try {
+      const tabs = await chrome.tabs.query({ url: link.url });
+      for (const tab of tabs) {
+        await chrome.tabs.remove(tab.id);
+      }
+    } catch (e) {
+      // Ignore tab cleanup errors
+    }
+    
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }
 

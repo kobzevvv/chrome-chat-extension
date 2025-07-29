@@ -9,7 +9,8 @@
         "api": "node util/api.example.js",
         "extract": "node util/extract-cli.js extract",
         "extract:list": "node util/extract-cli.js list",
-        "extract:help": "node util/extract-cli.js help"
+        "extract:help": "node util/extract-cli.js help",
+        "extract:resumes": "node util/extract-resumes.js"
     },
     "dependencies": {
         "@neondatabase/serverless": "^1.0.1",
