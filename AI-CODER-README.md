@@ -24,7 +24,7 @@ At the end of each coding session, provide:
 ```
 
 #### 2. **Check for Existing Branches**
-Before creating new branches, always: 
+Before creating new branches, always:
 - Run `git branch -a` to list all branches
 - Check if a related branch already exists
 - If found, use the existing branch instead of creating new ones
