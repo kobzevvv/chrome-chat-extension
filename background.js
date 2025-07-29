@@ -284,32 +284,56 @@ async function handleBrowserResumeExtraction(count) {
     let processed = 0;
     let errors = [];
     
-    // Process links in batches to avoid overwhelming the browser
-    const batchSize = 3;
-    console.log(`🔄 Starting batch processing with batch size: ${batchSize}`);
+    // Create a single tab for all extractions
+    console.log(`🆕 Creating single tab for extraction`);
+    const extractionTab = await chrome.tabs.create({
+      url: 'about:blank',
+      active: false
+    });
+    console.log(`✅ Extraction tab created with ID: ${extractionTab.id}`);
     
-    for (let i = 0; i < links.length; i += batchSize) {
-      const batch = links.slice(i, i + batchSize);
-      console.log(`📦 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(links.length/batchSize)}, links: ${batch.length}`);
+    try {
+      // Process all links sequentially using the same tab
+      console.log(`🔄 Starting sequential processing of ${links.length} resumes`);
       
-      const batchPromises = batch.map(link => extractResumeInTab(link));
-      
-      console.log(`⏳ Waiting for batch to complete...`);
-      const results = await Promise.allSettled(batchPromises);
-      
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled' && result.value.success) {
-          processed++;
-        } else {
-          const error = result.status === 'rejected' ? result.reason : result.value.error;
-          errors.push(`${batch[index].url}: ${error}`);
-          console.error(`❌ Failed to extract ${batch[index].url}:`, error);
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        console.log(`📊 Processing resume ${i + 1}/${links.length}: ${link.url}`);
+        
+        try {
+          const result = await extractResumeInSingleTab(extractionTab.id, link);
+          
+          if (result.success) {
+            processed++;
+            console.log(`✅ Resume ${i + 1}/${links.length} extracted successfully (reduced by ${result.reduction}%)`);
+          } else {
+            errors.push(`${link.url}: ${result.error}`);
+            console.error(`❌ Failed to extract resume ${i + 1}/${links.length}:`, result.error);
+          }
+          
+        } catch (error) {
+          errors.push(`${link.url}: ${error.message}`);
+          console.error(`❌ Error processing resume ${i + 1}/${links.length}:`, error);
         }
-      });
+        
+        // Small delay between extractions to avoid overwhelming
+        if (i < links.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        // Progress update every 10 resumes
+        if ((i + 1) % 10 === 0) {
+          console.log(`📈 Progress: ${i + 1}/${links.length} resumes processed`);
+        }
+      }
       
-      // Small delay between batches
-      if (i + batchSize < links.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+    } finally {
+      // Always close the extraction tab
+      try {
+        await chrome.tabs.remove(extractionTab.id);
+        console.log(`🗑️ Extraction tab closed`);
+      } catch (e) {
+        console.error(`❌ Error closing extraction tab:`, e);
       }
     }
     
@@ -332,26 +356,22 @@ async function handleBrowserResumeExtraction(count) {
   }
 }
 
-async function extractResumeInTab(link) {
-  console.log(`🌐 Extracting resume: ${link.url}`);
+async function extractResumeInSingleTab(tabId, link) {
+  console.log(`🌐 Extracting resume in tab ${tabId}: ${link.url}`);
   console.log(`🔗 Link object:`, link);
   
   try {
-    // Create a tab for extraction
-    console.log(`🆕 Creating tab for URL: ${link.url}`);
-    const tab = await chrome.tabs.create({
-      url: link.url,
-      active: false
-    });
-    console.log(`✅ Tab created with ID: ${tab.id}`);
+    // Navigate the existing tab to the URL
+    console.log(`🧭 Navigating tab ${tabId} to: ${link.url}`);
+    await chrome.tabs.update(tabId, { url: link.url });
     
     // Wait for tab to load
-    console.log(`⏳ Waiting for tab ${tab.id} to load...`);
-    await waitForTabToLoad(tab.id);
+    console.log(`⏳ Waiting for tab ${tabId} to load...`);
+    await waitForTabToLoad(tabId);
     
     // Inject content script if needed
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: tabId },
       files: ['content.js']
     });
     
@@ -359,7 +379,7 @@ async function extractResumeInTab(link) {
     await new Promise(resolve => setTimeout(resolve, 500));
     
     // Send message to content script to fetch HTML
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    const response = await chrome.tabs.sendMessage(tabId, {
       type: 'FETCH_RESUME_HTML',
       url: link.url
     });
@@ -398,9 +418,6 @@ async function extractResumeInTab(link) {
     const saveResult = await saveResponse.json();
     console.log(`✅ Saved resume ${resumeId} (reduced by ${saveResult.reduction_percent}%)`);
     
-    // Close the tab
-    await chrome.tabs.remove(tab.id);
-    
     return {
       success: true,
       resumeId,
@@ -409,16 +426,6 @@ async function extractResumeInTab(link) {
     
   } catch (error) {
     console.error(`❌ Error extracting ${link.url}:`, error);
-    
-    // Try to close the tab if it exists
-    try {
-      const tabs = await chrome.tabs.query({ url: link.url });
-      for (const tab of tabs) {
-        await chrome.tabs.remove(tab.id);
-      }
-    } catch (e) {
-      // Ignore tab cleanup errors
-    }
     
     return {
       success: false,
