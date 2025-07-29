@@ -456,6 +456,74 @@ app.post('/extracts/:extractId/processed', async (req, res) => {
   }
 });
 
+// Vacancy resume links endpoint
+app.post('/vacancy/resume-links', async (req, res) => {
+  try {
+    const { vacancyId, links } = req.body;
+    
+    if (!vacancyId || !links || !Array.isArray(links)) {
+      return res.status(400).json({
+        success: false,
+        error: 'vacancyId and links array are required'
+      });
+    }
+    
+    console.log(`📋 Saving ${links.length} resume links for vacancy ${vacancyId}`);
+    
+    // Get database connection
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    
+    // Create table if not exists
+    await sql`
+      CREATE TABLE IF NOT EXISTS resume_links_to_extract (
+        id SERIAL PRIMARY KEY,
+        url TEXT NOT NULL UNIQUE,
+        vacancy_id TEXT NOT NULL,
+        page_number INTEGER NOT NULL,
+        title TEXT,
+        extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        processed BOOLEAN DEFAULT FALSE,
+        processed_at TIMESTAMP,
+        error TEXT
+      )
+    `;
+    
+    let inserted = 0;
+    for (const link of links) {
+      try {
+        const result = await sql`
+          INSERT INTO resume_links_to_extract (url, vacancy_id, page_number, title) 
+          VALUES (${link.url}, ${vacancyId}, ${link.page}, ${link.title}) 
+          ON CONFLICT (url) DO NOTHING
+        `;
+        if (result.length > 0) {
+          inserted++;
+        }
+      } catch (insertError) {
+        console.error(`Error inserting link: ${link.url}`, insertError.message);
+      }
+    }
+    
+    console.log(`✅ Successfully inserted ${inserted} resume links`);
+    
+    res.json({
+      success: true,
+      vacancyId,
+      total: links.length,
+      inserted,
+      message: `Successfully saved ${inserted} resume links`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving resume links:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 

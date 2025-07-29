@@ -485,3 +485,13 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// Add event listener for vacancy extractor button
+document.getElementById('vacancyExtractorBtn').addEventListener('click', () => {
+  chrome.windows.create({
+    url: chrome.runtime.getURL('popup/vacancy-extractor.html'),
+    type: 'popup',
+    width: 450,
+    height: 600
+  });
+});
