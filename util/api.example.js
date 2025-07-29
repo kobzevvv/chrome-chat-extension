@@ -476,7 +476,7 @@ app.post('/vacancy/resume-links', async (req, res) => {
     
     // Create table if not exists
     await sql`
-      CREATE TABLE IF NOT EXISTS resume_links_to_extract (
+      CREATE TABLE IF NOT EXISTS resume_links (
         id SERIAL PRIMARY KEY,
         url TEXT NOT NULL UNIQUE,
         vacancy_id TEXT NOT NULL,
@@ -493,7 +493,7 @@ app.post('/vacancy/resume-links', async (req, res) => {
     for (const link of links) {
       try {
         const result = await sql`
-          INSERT INTO resume_links_to_extract (url, vacancy_id, page_number, title) 
+          INSERT INTO resume_links (url, vacancy_id, page_number, title) 
           VALUES (${link.url}, ${vacancyId}, ${link.page}, ${link.title}) 
           ON CONFLICT (url) DO NOTHING
         `;
