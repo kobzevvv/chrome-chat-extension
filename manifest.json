@@ -1,40 +1,19 @@
 {
     "manifest_version": 3,
-    "name": "HH.ru Chat Assistant",
+    "name": "HH.ru Resume Links Extractor",
     "version": "1.0.0",
-    "description": "Automate and monitor HH.ru chat messages",
+    "description": "Extract resume links from HH.ru vacancy responses",
     "permissions": [
       "activeTab",
       "storage",
-      "tabs",
-      "scripting"
+      "scripting",
+      "tabs"
     ],
     "host_permissions": [
-      "*://*.hh.ru/*",
-      "*://hh.ru/*"
-    ],
-    "background": {
-      "service_worker": "background.js"
-    },
-    "content_scripts": [
-      {
-        "matches": [
-          "*://*.hh.ru/*",
-          "*://hh.ru/*"
-        ],
-        "js": ["content.js"],
-        "run_at": "document_idle"
-      },
-      {
-        "matches": [
-          "*://*.hh.ru/employer/vacancyresponses*"
-        ],
-        "js": ["content-vacancy-extractor.js"],
-        "run_at": "document_idle"
-      }
+      "*://*.hh.ru/*"
     ],
     "action": {
       "default_popup": "popup/popup.html",
-      "default_title": "HH Chat Assistant"
+      "default_title": "Extract Resume Links"
     }
   }

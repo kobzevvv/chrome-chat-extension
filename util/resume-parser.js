@@ -191,9 +191,7 @@ function parseEmploymentPreferences(doc) {
   
   // Salary
   const salaryText = getTextBySelectors(doc, [
-    '[data-qa="resume-block-salary"]',
-    '.bloko-text:has-text("₽")',
-    '.bloko-text:has-text("руб")'
+    '[data-qa="resume-block-salary"]'
   ]);
   
   if (salaryText) {
@@ -202,14 +200,39 @@ function parseEmploymentPreferences(doc) {
       const salaryNum = salaryMatch[1].replace(/\s/g, '');
       prefs.salary = parseInt(salaryNum);
     }
+  } else {
+    // Fallback: search for elements containing salary info
+    const allElements = doc.querySelectorAll('.bloko-text');
+    for (const el of allElements) {
+      const text = el.textContent || '';
+      if (text.includes('₽') || text.includes('руб')) {
+        const match = text.match(/(\d+(?:\s\d+)*)/);
+        if (match) {
+          const salaryNum = match[1].replace(/\s/g, '');
+          prefs.salary = parseInt(salaryNum);
+          break;
+        }
+      }
+    }
   }
   
   // Relocation readiness
   prefs.relocation = getTextBySelectors(doc, [
     '[data-qa="resume-block-position-relocation"]',
-    '.bloko-text:has-text("переезд")',
-    '.bloko-text:has-text("командировки")'
+    '[data-qa="resume-block-relocation"]'
   ]);
+  
+  // If not found, try to find by text content
+  if (!prefs.relocation) {
+    const textElements = doc.querySelectorAll('.bloko-text');
+    for (const el of textElements) {
+      const text = el.textContent || '';
+      if (text.includes('переезд') || text.includes('командировки')) {
+        prefs.relocation = text.trim();
+        break;
+      }
+    }
+  }
   
   return prefs;
 }
@@ -239,11 +262,11 @@ function parseExperience(doc) {
   const experience = [];
   
   // Find experience section
-  const expSection = doc.querySelector([
+  const expSection = findElementBySelectors(doc, [
     '[data-qa="resume-block-experience"]',
     '.resume-block-container:has([data-qa*="experience"])',
     '.bloko-column:has-text("Опыт работы")'
-  ].join(', '));
+  ]);
   
   if (!expSection) {
     log('warn', 'Experience section not found');
@@ -321,11 +344,11 @@ function parseExperienceItem(item) {
 function parseEducation(doc) {
   const education = [];
   
-  const eduSection = doc.querySelector([
+  const eduSection = findElementBySelectors(doc, [
     '[data-qa="resume-block-education"]',
     '.resume-block-container:has([data-qa*="education"])',
     '.bloko-column:has-text("Образование")'
-  ].join(', '));
+  ]);
   
   if (!eduSection) {
     log('warn', 'Education section not found');
@@ -409,11 +432,11 @@ function parseContacts(doc, revealAttempted = false) {
   };
   
   // Find contacts section
-  const contactsSection = doc.querySelector([
+  const contactsSection = findElementBySelectors(doc, [
     '[data-qa="resume-contacts"]',
     '.resume-block-container:has([data-qa*="contact"])',
     '.bloko-column:has-text("Контакты")'
-  ].join(', '));
+  ]);
   
   if (!contactsSection) {
     log('warn', 'Contacts section not found');
@@ -493,10 +516,63 @@ function parseContacts(doc, revealAttempted = false) {
  */
 function getTextBySelectors(container, selectors) {
   for (const selector of selectors) {
-    const element = container.querySelector(selector);
-    if (element) {
-      const text = element.textContent?.trim();
-      if (text) return text;
+    try {
+      // Handle text-based pseudo-selectors
+      if (selector.includes(':has-text(')) {
+        const match = selector.match(/^(.+):has-text\("(.+)"\)$/);
+        if (match) {
+          const [, baseSelector, searchText] = match;
+          const elements = container.querySelectorAll(baseSelector);
+          for (const element of elements) {
+            if (element.textContent && element.textContent.includes(searchText)) {
+              const text = element.textContent.trim();
+              if (text) return text;
+            }
+          }
+        }
+      } else {
+        // Regular CSS selector
+        const element = container.querySelector(selector);
+        if (element) {
+          const text = element.textContent?.trim();
+          if (text) return text;
+        }
+      }
+    } catch (error) {
+      console.warn(`Invalid selector: ${selector}`, error.message);
+    }
+  }
+  return null;
+}
+
+/**
+ * Helper function to find element by multiple selectors (including :has-text)
+ */
+function findElementBySelectors(container, selectors) {
+  for (const selector of selectors) {
+    try {
+      // Handle text-based pseudo-selectors
+      if (selector.includes(':has-text(')) {
+        const match = selector.match(/^(.+):has-text\("(.+)"\)$/);
+        if (match) {
+          const [, baseSelector, searchText] = match;
+          const elements = container.querySelectorAll(baseSelector);
+          for (const element of elements) {
+            if (element.textContent && element.textContent.includes(searchText)) {
+              return element;
+            }
+          }
+        }
+      } else if (selector.includes(':has(')) {
+        // Skip :has() selectors as they're not supported in jsdom
+        continue;
+      } else {
+        // Regular CSS selector
+        const element = container.querySelector(selector);
+        if (element) return element;
+      }
+    } catch (error) {
+      console.warn(`Invalid selector: ${selector}`, error.message);
     }
   }
   return null;
