@@ -1,0 +1,32 @@
+name: Extract Vacancy Resumes
+
+on:
+  workflow_dispatch:
+    inputs:
+      vacancy_url:
+        description: 'HH.ru vacancy responses URL (e.g., https://ufa.hh.ru/employer/vacancyresponses?collection=phone_interview&vacancyId=123286350)'
+        required: true
+        type: string
+
+jobs:
+  extract-resumes:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Extract resume links
+      env:
+        NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        VACANCY_URL: ${{ github.event.inputs.vacancy_url }}
+      run: |
+        node util/extract-vacancy-resumes.js "$VACANCY_URL"
