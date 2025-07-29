@@ -78,9 +78,6 @@ SELECT * FROM resumes WHERE resume_id = 'eb6a98c0000f30b1ee0097a6044d4958673372'
 -- View experience
 SELECT * FROM resume_experience WHERE resume_id = 'eb6a98c0000f30b1ee0097a6044d4958673372';
 
--- View education
-SELECT * FROM resume_education WHERE resume_id = 'eb6a98c0000f30b1ee0097a6044d4958673372';
-
 -- View contacts
 SELECT * FROM resume_contacts WHERE resume_id = 'eb6a98c0000f30b1ee0097a6044d4958673372';
 ```
@@ -93,7 +90,6 @@ SELECT * FROM resume_contacts WHERE resume_id = 'eb6a98c0000f30b1ee0097a6044d495
 - Employment preferences: types, schedules, salary
 - Skills array
 - Experience records with dates
-- Education records
 - Contacts (if visible): emails, phones, telegram
 
 ### Contacts Handling
