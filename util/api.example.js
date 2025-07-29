@@ -8,8 +8,13 @@ const {
   saveMessages, 
   getRecentMessages, 
   getChatStats, 
-  getAllChats 
+  getAllChats,
+  saveResume,
+  getResume,
+  getAllResumes
 } = require('./database');
+
+const { parseResume } = require('./resume-parser');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -192,6 +197,95 @@ app.get('/chats/:chatId/stats', async (req, res) => {
   }
 });
 
+// Resume endpoints
+
+// Parse and save resume from HTML
+app.post('/resume/parse', async (req, res) => {
+  try {
+    const { html, sourceUrl, options = {} } = req.body;
+    
+    if (!html || !sourceUrl) {
+      return res.status(400).json({
+        success: false,
+        error: 'html and sourceUrl are required'
+      });
+    }
+    
+    console.log(`📄 Parsing resume from: ${sourceUrl}`);
+    
+    // Parse the resume
+    const resumeData = parseResume(html, sourceUrl, options);
+    
+    // Save to database
+    const result = await saveResume(resumeData);
+    
+    res.json({
+      success: true,
+      resume_id: result.resume_id,
+      candidate_name: resumeData.candidate_name,
+      contacts_found: {
+        emails: resumeData.emails?.length || 0,
+        phones: resumeData.phones_raw?.length || 0,
+        telegrams: resumeData.telegrams?.length || 0
+      },
+      contacts_masked: resumeData.contacts_masked,
+      parsed_at: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error parsing/saving resume:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// Get all resumes
+app.get('/resumes', async (req, res) => {
+  try {
+    const resumes = await getAllResumes();
+    res.json({
+      success: true,
+      resumes,
+      count: resumes.length
+    });
+  } catch (error) {
+    console.error('❌ Error getting resumes:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get specific resume by ID
+app.get('/resumes/:resumeId', async (req, res) => {
+  try {
+    const { resumeId } = req.params;
+    const resume = await getResume(resumeId);
+    
+    if (!resume) {
+      return res.status(404).json({
+        success: false,
+        error: 'Resume not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      resume
+    });
+  } catch (error) {
+    console.error('❌ Error getting resume:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -215,6 +309,8 @@ async function startServer() {
       console.log(`🚀 HH Chat API server running on http://localhost:${PORT}`);
       console.log(`📨 Chat snapshots will be received at http://localhost:${PORT}/inbox`);
       console.log(`📊 View all chats at http://localhost:${PORT}/chats`);
+      console.log(`📄 Resume parsing at http://localhost:${PORT}/resume/parse`);
+      console.log(`📑 View all resumes at http://localhost:${PORT}/resumes`);
       console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
       console.log(`\n💡 Don't forget to set your DATABASE_URL environment variable!`);
     });

@@ -188,6 +188,100 @@ async function sendQuickMessage() {
   }
 }
 
+// Resume capture function
+async function captureCurrentResume() {
+  try {
+    addLog('📄 Starting resume capture...', 'info');
+    
+    // Update status display
+    const statusEl = document.getElementById('resumeStatus');
+    if (statusEl) {
+      statusEl.textContent = 'Capturing resume...';
+      statusEl.style.color = '#007bff';
+    }
+    
+    // Get checkbox state
+    const revealContacts = document.getElementById('revealContacts')?.checked || false;
+    
+    // Get current tab
+    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    
+    if (!tab || !tab.url) {
+      throw new Error('No active tab found');
+    }
+    
+    // Check if on resume page
+    if (!tab.url.includes('/resume/')) {
+      addLog('❌ Not on a resume page', 'error');
+      if (statusEl) {
+        statusEl.textContent = 'Please navigate to a resume page first';
+        statusEl.style.color = '#dc3545';
+      }
+      return;
+    }
+    
+    addLog(`📄 Capturing from: ${tab.url}`, 'info');
+    addLog(`📄 Reveal contacts: ${revealContacts ? 'Yes' : 'No'}`, 'info');
+    
+    // Send capture request to content script
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'CAPTURE_RESUME',
+      options: {
+        revealContacts: revealContacts
+      }
+    });
+    
+    if (response && response.success) {
+      addLog('✅ Resume captured successfully!', 'success');
+      addLog(`📄 Resume ID: ${response.result.resume_id}`, 'info');
+      addLog(`👤 Candidate: ${response.result.candidate_name}`, 'info');
+      addLog(`📧 Emails: ${response.result.contacts_found.emails}`, 'info');
+      addLog(`📱 Phones: ${response.result.contacts_found.phones}`, 'info');
+      addLog(`📲 Telegram: ${response.result.contacts_found.telegrams}`, 'info');
+      
+      if (response.result.contacts_masked) {
+        addLog('⚠️ Some contacts are masked', 'warning');
+      }
+      
+      if (statusEl) {
+        statusEl.textContent = `Saved: ${response.result.candidate_name}`;
+        statusEl.style.color = '#28a745';
+      }
+      
+      // Show stored resumes link
+      showStoredResumesLink();
+      
+    } else {
+      throw new Error(response?.error || 'Failed to capture resume');
+    }
+    
+  } catch (error) {
+    console.error('❌ Resume capture error:', error);
+    addLog(`❌ Resume capture failed: ${error.message}`, 'error');
+    
+    const statusEl = document.getElementById('resumeStatus');
+    if (statusEl) {
+      statusEl.textContent = `Error: ${error.message}`;
+      statusEl.style.color = '#dc3545';
+    }
+  }
+}
+
+// Show link to view stored resumes
+function showStoredResumesLink() {
+  const statusEl = document.getElementById('resumeStatus');
+  if (statusEl) {
+    setTimeout(() => {
+      statusEl.innerHTML = `
+        <a href="http://localhost:4000/resumes" target="_blank" 
+           style="color: #007bff; text-decoration: underline; cursor: pointer;">
+          View all stored resumes →
+        </a>
+      `;
+    }, 3000);
+  }
+}
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('🚀 Popup DOM loaded');

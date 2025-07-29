@@ -256,6 +256,20 @@
     </div>
   </div>
   
+  <div class="resume-capture" style="margin-top: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; background: #f8f9fa;">
+    <h4 style="margin-top: 0;">Resume Capture</h4>
+    <div style="margin-bottom: 8px;">
+      <label style="display: flex; align-items: center; cursor: pointer;">
+        <input type="checkbox" id="revealContacts" style="margin-right: 6px;">
+        <span style="font-size: 12px;">Reveal contacts (if available)</span>
+      </label>
+    </div>
+    <button class="send-btn" onclick="captureCurrentResume()" style="width: 100%;">
+      Save HH Resume to Neon
+    </button>
+    <div id="resumeStatus" style="margin-top: 8px; font-size: 11px; color: #666;"></div>
+  </div>
+  
   <div class="log-section">
     <h4>Status Log</h4>
     <div id="logContainer"></div>

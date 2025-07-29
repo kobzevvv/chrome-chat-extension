@@ -150,6 +150,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  if (message.type === 'CAPTURE_RESUME') {
+    console.log('📄 Processing CAPTURE_RESUME request...');
+    console.log('📄 Options:', message.options);
+    
+    captureResume(message.options).then(result => {
+      console.log('✅ CAPTURE_RESUME completed:', result);
+      sendResponse(result);
+    }).catch(error => {
+      console.error('❌ CAPTURE_RESUME failed:', error);
+      sendResponse({success: false, error: error.message});
+    });
+    return true;
+  }
+  
   console.log('❓ Unknown message type:', message.type);
   sendResponse({success: false, error: 'Unknown message type'});
 });
@@ -787,6 +801,290 @@ window.addEventListener('beforeunload', () => {
     clearInterval(chatSnapshotInterval);
   }
 });
+
+// ==================== RESUME CAPTURE FUNCTIONS ====================
+
+/**
+ * Main resume capture function
+ * @param {Object} options - Capture options
+ * @param {boolean} options.revealContacts - Whether to attempt revealing contacts
+ * @returns {Object} - Result object with success status
+ */
+async function captureResume(options = {}) {
+  console.log('📄 Starting resume capture process...');
+  console.log('📄 Current URL:', window.location.href);
+  console.log('📄 Options:', options);
+  
+  try {
+    // Check if we're on a resume page
+    if (!isResumePage()) {
+      throw new Error('Not on a resume page. Expected URL pattern: /resume/[id]');
+    }
+    
+    // Get print version if possible
+    const html = await getResumeHTML(options.revealContacts);
+    
+    if (!html) {
+      throw new Error('Could not capture resume HTML');
+    }
+    
+    // Send to API for parsing and storage
+    const result = await sendResumeToAPI(html, window.location.href, options);
+    
+    console.log('✅ Resume capture completed successfully');
+    return {
+      success: true,
+      result: result,
+      captured_at: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    console.error('❌ Resume capture failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Check if current page is a resume page
+ */
+function isResumePage() {
+  const url = window.location.href;
+  return /\/resume\/[a-f0-9]+/.test(url);
+}
+
+/**
+ * Get resume HTML, preferring print version
+ */
+async function getResumeHTML(revealContacts = false) {
+  console.log('📄 Attempting to get resume HTML...');
+  
+  // First, try to reveal contacts if requested
+  if (revealContacts) {
+    await attemptRevealContacts();
+  }
+  
+  // Try to get print version
+  let printHTML = await attemptGetPrintVersion();
+  
+  if (printHTML) {
+    console.log('✅ Successfully captured print version');
+    return printHTML;
+  }
+  
+  // Fallback to current page HTML
+  console.log('⚠️ Print version not available, using current page');
+  return document.documentElement.outerHTML;
+}
+
+/**
+ * Attempt to reveal hidden contacts
+ */
+async function attemptRevealContacts() {
+  console.log('📄 Attempting to reveal contacts...');
+  
+  try {
+    // Look for "Показать все контакты" button
+    const revealSelectors = [
+      'button:contains("Показать все контакты")',
+      'a:contains("Показать все контакты")',
+      '[data-qa*="contact"] button',
+      '.bloko-link:contains("Показать")'
+    ];
+    
+    let revealButton = null;
+    
+    for (const selector of revealSelectors) {
+      // Custom contains selector implementation
+      const elements = Array.from(document.querySelectorAll('button, a, .bloko-link'));
+      revealButton = elements.find(el => 
+        el.textContent && el.textContent.includes('Показать все контакты')
+      );
+      
+      if (revealButton) {
+        console.log('📄 Found reveal contacts button');
+        break;
+      }
+    }
+    
+    if (revealButton) {
+      console.log('📄 Clicking reveal contacts button...');
+      revealButton.click();
+      
+      // Wait for potential DOM updates
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      console.log('✅ Contacts reveal attempted');
+      return true;
+    } else {
+      console.log('ℹ️ No reveal contacts button found');
+      return false;
+    }
+    
+  } catch (error) {
+    console.warn('⚠️ Error attempting to reveal contacts:', error);
+    return false;
+  }
+}
+
+/**
+ * Attempt to get print version of resume
+ */
+async function attemptGetPrintVersion() {
+  console.log('📄 Attempting to get print version...');
+  
+  try {
+    // Method 1: Look for print button and try to open print version
+    const printButton = document.querySelector([
+      '[data-qa="resume-print-button"]',
+      '.print-button',
+      'button:contains("Печать")',
+      'a:contains("Печать")'
+    ].join(', '));
+    
+    if (printButton) {
+      console.log('📄 Found print button, trying to get print URL...');
+      
+      // Try to extract print URL from button
+      const printUrl = extractPrintUrl(printButton);
+      
+      if (printUrl) {
+        console.log('📄 Fetching print version from:', printUrl);
+        return await fetchPrintVersion(printUrl);
+      }
+    }
+    
+    // Method 2: Try common print URL patterns
+    const currentUrl = window.location.href;
+    const printUrls = [
+      currentUrl + '?print=true',
+      currentUrl + '/print',
+      currentUrl.replace('/resume/', '/resume/print/')
+    ];
+    
+    for (const printUrl of printUrls) {
+      console.log('📄 Trying print URL:', printUrl);
+      try {
+        const html = await fetchPrintVersion(printUrl);
+        if (html && html.length > 1000) { // Basic validation
+          return html;
+        }
+      } catch (error) {
+        console.log('📄 Print URL failed:', printUrl, error.message);
+      }
+    }
+    
+    return null;
+    
+  } catch (error) {
+    console.warn('⚠️ Error getting print version:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract print URL from print button
+ */
+function extractPrintUrl(printButton) {
+  if (printButton.href) {
+    return printButton.href;
+  }
+  
+  // Look for data attributes or onclick handlers
+  const onclick = printButton.getAttribute('onclick');
+  if (onclick) {
+    const urlMatch = onclick.match(/['"](\/[^'"]+print[^'"]*)['"]/);
+    if (urlMatch) {
+      return new URL(urlMatch[1], window.location.origin).href;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Fetch print version from URL
+ */
+async function fetchPrintVersion(printUrl) {
+  try {
+    const response = await fetch(printUrl, {
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const html = await response.text();
+    console.log('📄 Print version fetched, size:', html.length);
+    
+    return html;
+    
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch print version:', error);
+    throw error;
+  }
+}
+
+/**
+ * Send resume HTML to API for parsing and storage
+ */
+async function sendResumeToAPI(html, sourceUrl, options) {
+  console.log('📄 Sending resume to API for processing...');
+  
+  try {
+    const response = await fetch('http://localhost:4000/resume/parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        html: html,
+        sourceUrl: sourceUrl,
+        options: {
+          revealAttempted: options.revealContacts || false
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`API Error ${response.status}: ${errorData.error || response.statusText}`);
+    }
+    
+    const result = await response.json();
+    console.log('✅ Resume processed successfully:', result);
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Failed to send resume to API:', error);
+    throw error;
+  }
+}
+
+// Resume capture test function
+window.testResumeCapture = function(options = {}) {
+  console.log('🧪 [RESUME-TEST] Starting manual resume capture test...');
+  console.log('🧪 [RESUME-TEST] Current URL:', window.location.href);
+  console.log('🧪 [RESUME-TEST] Options:', options);
+  
+  if (!isResumePage()) {
+    console.error('🧪 [RESUME-TEST] Not on a resume page!');
+    return;
+  }
+  
+  captureResume(options).then(result => {
+    console.log('🧪 [RESUME-TEST] Capture completed:', result);
+  }).catch(error => {
+    console.error('🧪 [RESUME-TEST] Capture failed:', error);
+  });
+};
 
 // DOM inspection function to help debug message selectors
 window.inspectMessages = function() {
