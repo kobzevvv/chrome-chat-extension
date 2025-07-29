@@ -140,7 +140,34 @@ async function createTables() {
       CREATE INDEX IF NOT EXISTS idx_resume_contacts_resume_id ON resume_contacts(resume_id)
     `;
 
-    console.log('✅ Database tables created/verified (chats, messages, resumes)');
+    // Create simplified table for raw HTML extracts (ELT approach)
+    await sql`
+      CREATE TABLE IF NOT EXISTS resume_extracts (
+        id BIGSERIAL PRIMARY KEY,
+        resume_id TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        html_content TEXT NOT NULL,
+        extracted_at TIMESTAMPTZ DEFAULT NOW(),
+        processed BOOLEAN DEFAULT FALSE,
+        processed_at TIMESTAMPTZ,
+        metadata JSONB DEFAULT '{}'::jsonb
+      )
+    `;
+
+    // Create indexes for extract table
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_resume_extracts_resume_id ON resume_extracts(resume_id)
+    `;
+    
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_resume_extracts_processed ON resume_extracts(processed)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_resume_extracts_extracted_at ON resume_extracts(extracted_at)
+    `;
+
+    console.log('✅ Database tables created/verified (chats, messages, resumes, extracts)');
   } catch (error) {
     console.error('❌ Error creating tables:', error);
     throw error;
@@ -456,6 +483,58 @@ async function getAllResumes() {
   }
 }
 
+// Save raw HTML extract (ELT approach)
+async function saveExtract(extractData) {
+  try {
+    const { resume_id, source_url, html_content, metadata = {} } = extractData;
+    
+    const result = await sql`
+      INSERT INTO resume_extracts (resume_id, source_url, html_content, metadata)
+      VALUES (${resume_id}, ${source_url}, ${html_content}, ${JSON.stringify(metadata)})
+      RETURNING id, extracted_at
+    `;
+    
+    console.log(`📄 Extract saved: Resume ID ${resume_id}, Extract ID ${result[0].id}`);
+    return result[0];
+  } catch (error) {
+    console.error('❌ Error saving extract:', error);
+    throw error;
+  }
+}
+
+// Get unprocessed extracts
+async function getUnprocessedExtracts(limit = 10) {
+  try {
+    const extracts = await sql`
+      SELECT * FROM resume_extracts 
+      WHERE processed = false
+      ORDER BY extracted_at ASC
+      LIMIT ${limit}
+    `;
+    
+    return extracts;
+  } catch (error) {
+    console.error('❌ Error getting unprocessed extracts:', error);
+    throw error;
+  }
+}
+
+// Mark extract as processed
+async function markExtractProcessed(extractId) {
+  try {
+    await sql`
+      UPDATE resume_extracts 
+      SET processed = true, processed_at = NOW()
+      WHERE id = ${extractId}
+    `;
+    
+    console.log(`✅ Extract ${extractId} marked as processed`);
+  } catch (error) {
+    console.error('❌ Error marking extract as processed:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   initDatabase,
   createTables,
@@ -467,5 +546,8 @@ module.exports = {
   getAllChats,
   saveResume,
   getResume,
-  getAllResumes
+  getAllResumes,
+  saveExtract,
+  getUnprocessedExtracts,
+  markExtractProcessed
 };

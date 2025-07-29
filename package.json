@@ -5,14 +5,19 @@
     "main": "util/api.example.js",
     "scripts": {
         "dev": "node util/api.example.js",
-        "start": "npm run dev"
+        "start": "npm run dev",
+        "api": "node util/api.example.js",
+        "extract": "node util/extract-cli.js extract",
+        "extract:list": "node util/extract-cli.js list",
+        "extract:help": "node util/extract-cli.js help"
     },
     "dependencies": {
         "@neondatabase/serverless": "^1.0.1",
         "cors": "^2.8.5",
         "dotenv": "^17.2.0",
         "express": "^4.18.2",
-        "jsdom": "^26.1.0"
+        "jsdom": "^26.1.0",
+        "node-fetch": "^2.7.0"
     },
     "keywords": [
         "hh.ru",

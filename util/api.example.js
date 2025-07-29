@@ -11,7 +11,10 @@ const {
   getAllChats,
   saveResume,
   getResume,
-  getAllResumes
+  getAllResumes,
+  saveExtract,
+  getUnprocessedExtracts,
+  markExtractProcessed
 } = require('./database');
 
 const { parseResume } = require('./resume-parser');
@@ -286,6 +289,130 @@ app.get('/resumes/:resumeId', async (req, res) => {
   }
 });
 
+// Extract endpoints (ELT approach)
+
+// Save raw HTML extract
+app.post('/extract', async (req, res) => {
+  try {
+    const { resume_id, source_url, html_content, metadata = {} } = req.body;
+    
+    if (!resume_id || !source_url || !html_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'resume_id, source_url, and html_content are required'
+      });
+    }
+    
+    console.log(`📥 Saving extract for resume: ${resume_id}`);
+    
+    const extract = await saveExtract({
+      resume_id,
+      source_url,
+      html_content,
+      metadata
+    });
+    
+    res.json({
+      success: true,
+      extract_id: extract.id,
+      extracted_at: extract.extracted_at,
+      resume_id
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving extract:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Extract from URL (used by terminal/webhook)
+app.post('/extract-url', async (req, res) => {
+  try {
+    let { url } = req.body;
+    
+    // Default to test URL if not provided
+    if (!url) {
+      url = 'https://ufa.hh.ru/resume/eb6a98c0000f30b1ee0097a6044d4958673372';
+      console.log(`📌 Using default test URL: ${url}`);
+    }
+    
+    // Extract resume ID from URL
+    const resumeIdMatch = url.match(/\/resume\/([a-f0-9]+)/);
+    if (!resumeIdMatch) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid resume URL format'
+      });
+    }
+    
+    const resume_id = resumeIdMatch[1];
+    
+    // In a real implementation, you would fetch the HTML here
+    // For now, we'll return instructions
+    res.json({
+      success: true,
+      message: 'Extract endpoint ready',
+      resume_id,
+      source_url: url,
+      next_steps: [
+        '1. Fetch HTML from the URL using Chrome extension or server-side fetcher',
+        '2. POST the HTML to /extract endpoint',
+        '3. Process extracts asynchronously using /extracts/unprocessed'
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Error extracting from URL:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get unprocessed extracts
+app.get('/extracts/unprocessed', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const extracts = await getUnprocessedExtracts(limit);
+    
+    res.json({
+      success: true,
+      extracts,
+      count: extracts.length
+    });
+  } catch (error) {
+    console.error('❌ Error getting unprocessed extracts:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Mark extract as processed
+app.post('/extracts/:extractId/processed', async (req, res) => {
+  try {
+    const { extractId } = req.params;
+    await markExtractProcessed(extractId);
+    
+    res.json({
+      success: true,
+      extract_id: extractId,
+      processed_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error marking extract as processed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -311,6 +438,9 @@ async function startServer() {
       console.log(`📊 View all chats at http://localhost:${PORT}/chats`);
       console.log(`📄 Resume parsing at http://localhost:${PORT}/resume/parse`);
       console.log(`📑 View all resumes at http://localhost:${PORT}/resumes`);
+      console.log(`📥 Extract HTML at http://localhost:${PORT}/extract`);
+      console.log(`🔗 Extract from URL at http://localhost:${PORT}/extract-url`);
+      console.log(`📋 Get unprocessed extracts at http://localhost:${PORT}/extracts/unprocessed`);
       console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
       console.log(`\n💡 Don't forget to set your DATABASE_URL environment variable!`);
     });
