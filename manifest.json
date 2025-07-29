@@ -29,7 +29,7 @@
         "matches": [
           "*://*.hh.ru/employer/vacancyresponses*"
         ],
-        "js": ["content-vacancy-extractor.js"],
+        "js": ["content-get-resume-links.js"],
         "run_at": "document_idle"
       }
     ],

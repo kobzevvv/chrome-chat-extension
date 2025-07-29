@@ -1,5 +1,5 @@
-// Vacancy Response Links Extractor
-console.log('🔍 Vacancy extractor loaded');
+// Get Resume Links from Vacancy Response Page
+console.log('🔍 Resume links extractor loaded');
 
 async function extractVacancyResumeLinks() {
   const results = {
@@ -24,19 +24,45 @@ async function extractVacancyResumeLinks() {
     // Function to extract links from current page
     function extractLinksFromPage() {
       const links = [];
-      const resumeElements = document.querySelectorAll('h3.title--Z9FeLyEY3sZrwn2k a[data-qa="serp-item__title"]');
       
-      resumeElements.forEach(element => {
-        const href = element.getAttribute('href');
-        if (href) {
-          links.push({
-            url: `https://hh.ru${href}`,
-            title: element.textContent.trim()
+      // Try multiple possible selectors
+      const selectors = [
+        'a[data-qa="serp-item__title"]',
+        'a[href*="/resume/"]',
+        '.resume-search-item__name a',
+        '.bloko-link[href*="/resume/"]',
+        'h3 a[href*="/resume/"]'
+      ];
+      
+      console.log('🔍 Trying to find resume links with selectors:', selectors);
+      
+      for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        console.log(`Selector "${selector}" found ${elements.length} elements`);
+        
+        if (elements.length > 0) {
+          elements.forEach(element => {
+            const href = element.getAttribute('href');
+            if (href && href.includes('/resume/')) {
+              const fullUrl = href.startsWith('http') ? href : `https://hh.ru${href}`;
+              links.push({
+                url: fullUrl,
+                title: element.textContent.trim()
+              });
+            }
           });
+          
+          if (links.length > 0) {
+            console.log(`✅ Successfully extracted ${links.length} resume links`);
+            break;
+          }
         }
-      });
+      }
       
-      return links;
+      // Remove duplicates
+      const uniqueLinks = Array.from(new Map(links.map(link => [link.url, link])).values());
+      
+      return uniqueLinks;
     }
 
     // Function to navigate to next page
@@ -107,7 +133,7 @@ if (window.location.href.includes('/employer/vacancyresponses')) {
   
   // Notify background script that we're ready
   chrome.runtime.sendMessage({
-    type: 'VACANCY_EXTRACTOR_READY',
+    type: 'RESUME_LINKS_EXTRACTOR_READY',
     url: window.location.href
   });
 }

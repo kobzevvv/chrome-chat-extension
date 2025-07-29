@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Resume Links Extraction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Resume Links Extraction</h1>
+    
+    <div class="test-section">
+        <h2>Instructions:</h2>
+        <ol>
+            <li>Open the Chrome Extension popup</li>
+            <li>Navigate to: <code>https://ufa.hh.ru/employer/vacancyresponses?collection=phone_interview&vacancyId=123286350</code></li>
+            <li>Open Developer Console (F12)</li>
+            <li>Click "Test Direct Extraction" below</li>
+            <li>Check console for debug information</li>
+        </ol>
+    </div>
+    
+    <div class="test-section">
+        <h2>Manual Test in Console:</h2>
+        <p>Copy and paste this code in the console on the vacancy response page:</p>
+        <pre>
+// Test extraction directly
+function testExtraction() {
+  console.log('=== Starting extraction test ===');
+  
+  // Try different selectors
+  const selectors = [
+    'a[data-qa="serp-item__title"]',
+    'a[href*="/resume/"]',
+    '.resume-search-item__name a',
+    '.bloko-link[href*="/resume/"]',
+    'h3 a[href*="/resume/"]',
+    'a.serp-item__title',
+    '.bloko-section a[href*="/resume/"]'
+  ];
+  
+  selectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    console.log(`Selector: "${selector}" found ${elements.length} elements`);
+    
+    if (elements.length > 0) {
+      console.log('First element:', elements[0]);
+      console.log('HTML:', elements[0].outerHTML);
+    }
+  });
+  
+  // Try to find any links with resume in href
+  const allLinks = document.querySelectorAll('a[href*="resume"]');
+  console.log(`\nTotal links with "resume" in href: ${allLinks.length}`);
+  
+  if (allLinks.length > 0) {
+    console.log('\nFirst 5 resume links:');
+    Array.from(allLinks).slice(0, 5).forEach((link, i) => {
+      console.log(`${i + 1}. ${link.href}`);
+      console.log(`   Text: ${link.textContent.trim()}`);
+      console.log(`   Parent: ${link.parentElement.tagName}.${link.parentElement.className}`);
+    });
+  }
+}
+
+testExtraction();
+        </pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>Extension Injection Test:</h2>
+        <button onclick="testContentScriptInjection()">Test Content Script Injection</button>
+        <div id="injectionStatus" class="status"></div>
+    </div>
+    
+    <script>
+        async function testContentScriptInjection() {
+            const statusEl = document.getElementById('injectionStatus');
+            
+            try {
+                // This won't work from a regular webpage, but shows what the extension should do
+                statusEl.className = 'status error';
+                statusEl.textContent = 'This test must be run from the extension context. Use the code above in the browser console instead.';
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

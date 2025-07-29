@@ -16,4 +16,4 @@ yarn-debug.log*
 yarn-error.log*
 .vscode/
 .idea/
-*.zip
+*.zip.env copy

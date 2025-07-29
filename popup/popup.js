@@ -495,14 +495,134 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Add event listener for vacancy extractor button
-document.getElementById('vacancyExtractorBtn').addEventListener('click', () => {
-  chrome.windows.create({
-    url: chrome.runtime.getURL('popup/vacancy-extractor.html'),
-    type: 'popup',
-    width: 450,
-    height: 600
-  });
+// Add event listener for extract resume links button
+document.getElementById('extractResumeLinksBtn')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('resumeLinksStatus');
+  const btnEl = document.getElementById('extractResumeLinksBtn');
+  
+  try {
+    // Update UI
+    btnEl.disabled = true;
+    statusEl.textContent = 'Extracting resume links...';
+    statusEl.style.color = '#1976d2';
+    
+    // Get current tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // Check if we're on a vacancy response page
+    if (!tab.url.includes('/employer/vacancyresponses')) {
+      throw new Error('Please navigate to a vacancy response page first');
+    }
+    
+    // Inject content script if needed
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content-get-resume-links.js']
+      });
+    } catch (err) {
+      console.log('Content script already injected or error:', err);
+    }
+    
+    // Small delay to ensure script is loaded
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Extract links
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_VACANCY_RESUMES' });
+    
+    if (response.error) {
+      throw new Error(response.error);
+    }
+    
+    // Display results
+    const count = response.resumeLinks.length;
+    if (count > 0) {
+      statusEl.textContent = `✅ Found ${count} resume links on this page`;
+      statusEl.style.color = '#4CAF50';
+      
+      // Log the links to console for debugging
+      console.log('Extracted resume links:', response.resumeLinks);
+      
+      // Store links temporarily with vacancy ID
+      const url = new URL(tab.url);
+      const vacancyId = url.searchParams.get('vacancyId');
+      
+      await chrome.storage.local.set({ 
+        lastExtractedLinks: response.resumeLinks,
+        extractedAt: new Date().toISOString(),
+        vacancyId: vacancyId
+      });
+      
+      // Show save button
+      document.getElementById('saveResumeLinksBtn').style.display = 'block';
+    } else {
+      statusEl.textContent = '⚠️ No resume links found on this page';
+      statusEl.style.color = '#ff9800';
+    }
+    
+  } catch (error) {
+    statusEl.textContent = `❌ Error: ${error.message}`;
+    statusEl.style.color = '#f44336';
+    console.error('Extraction error:', error);
+  } finally {
+    btnEl.disabled = false;
+  }
+});
+
+// Add event listener for save to database button
+document.getElementById('saveResumeLinksBtn')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('resumeLinksStatus');
+  const saveBtn = document.getElementById('saveResumeLinksBtn');
+  
+  try {
+    // Update UI
+    saveBtn.disabled = true;
+    statusEl.textContent = 'Saving to database...';
+    statusEl.style.color = '#1976d2';
+    
+    // Get stored links
+    const data = await chrome.storage.local.get(['lastExtractedLinks', 'vacancyId']);
+    
+    if (!data.lastExtractedLinks || data.lastExtractedLinks.length === 0) {
+      throw new Error('No links to save');
+    }
+    
+    // Send to API
+    const apiUrl = 'http://localhost:4000'; // You can make this configurable
+    const response = await fetch(`${apiUrl}/vacancy/resume-links`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        vacancyId: data.vacancyId,
+        links: data.lastExtractedLinks
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    // Show success
+    statusEl.textContent = `✅ Saved ${result.inserted} links to database (${result.duplicates} duplicates skipped)`;
+    statusEl.style.color = '#4CAF50';
+    
+    // Hide save button after successful save
+    saveBtn.style.display = 'none';
+    
+    // Clear stored links
+    await chrome.storage.local.remove(['lastExtractedLinks', 'vacancyId']);
+    
+  } catch (error) {
+    statusEl.textContent = `❌ Database error: ${error.message}`;
+    statusEl.style.color = '#f44336';
+    console.error('Save error:', error);
+  } finally {
+    saveBtn.disabled = false;
+  }
 });
 
 // Handle resume extraction
