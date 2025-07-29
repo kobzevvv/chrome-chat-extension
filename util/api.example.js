@@ -9,22 +9,23 @@ const {
   getRecentMessages, 
   getChatStats, 
   getAllChats,
-  saveResume,
-  getResume,
-  getAllResumes,
-  saveExtract,
-  getUnprocessedExtracts,
-  markExtractProcessed
+  saveResumeLink,
+  getUnprocessedResumeLinks,
+  markResumeLinkProcessed,
+  saveHtmlContent,
+  getAllHtmlContent,
+  getHtmlContentCount
 } = require('./database');
 
-const { parseResume } = require('./resume-parser');
+// Resume parser no longer needed - we're just storing raw HTML
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -470,6 +471,11 @@ app.post('/vacancy/resume-links', async (req, res) => {
     
     console.log(`📋 Saving ${links.length} resume links for vacancy ${vacancyId}`);
     
+    // Check for DATABASE_URL
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is not set');
+    }
+    
     // Get database connection
     const { neon } = require('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
@@ -490,33 +496,247 @@ app.post('/vacancy/resume-links', async (req, res) => {
     `;
     
     let inserted = 0;
+    let skipped = 0;
+    let errors = 0;
+    
     for (const link of links) {
       try {
         const result = await sql`
           INSERT INTO resume_links (url, vacancy_id, page_number, title) 
           VALUES (${link.url}, ${vacancyId}, ${link.page}, ${link.title}) 
           ON CONFLICT (url) DO NOTHING
+          RETURNING id
         `;
-        if (result.length > 0) {
+        if (result && result.length > 0) {
           inserted++;
+        } else {
+          skipped++;
         }
       } catch (insertError) {
         console.error(`Error inserting link: ${link.url}`, insertError.message);
+        errors++;
       }
     }
     
-    console.log(`✅ Successfully inserted ${inserted} resume links`);
+    console.log(`✅ Inserted: ${inserted}, Skipped (duplicates): ${skipped}, Errors: ${errors}`);
     
     res.json({
       success: true,
       vacancyId,
       total: links.length,
       inserted,
-      message: `Successfully saved ${inserted} resume links`
+      skipped,
+      errors,
+      message: `Saved ${inserted} new links, ${skipped} already existed, ${errors} errors`
     });
     
   } catch (error) {
     console.error('❌ Error saving resume links:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get unprocessed resume links
+app.get('/resume-links/unprocessed', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    
+    // Check for DATABASE_URL
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is not set');
+    }
+    
+    // Get database connection
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    
+    // Get unprocessed links
+    const links = await sql`
+      SELECT id, url, vacancy_id, title
+      FROM resume_links
+      WHERE processed = false
+      ORDER BY id
+      LIMIT ${limit}
+    `;
+    
+    console.log(`📋 Found ${links.length} unprocessed resume links`);
+    
+    res.json({
+      success: true,
+      links: links,
+      count: links.length,
+      limit: limit
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting unprocessed links:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Mark resume link as processed
+app.post('/resume-links/:id/processed', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = req.body;
+    
+    // Check for DATABASE_URL
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is not set');
+    }
+    
+    // Get database connection
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    
+    // Update link status
+    const result = await sql`
+      UPDATE resume_links
+      SET 
+        processed = true,
+        processed_at = CURRENT_TIMESTAMP,
+        error = ${error || null}
+      WHERE id = ${id}
+      RETURNING id
+    `;
+    
+    if (result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Resume link not found'
+      });
+    }
+    
+    console.log(`✅ Marked resume link ${id} as processed`);
+    
+    res.json({
+      success: true,
+      id: id,
+      message: 'Resume link marked as processed'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error marking link as processed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Save raw HTML content (simplified approach)
+app.post('/resume/html-content', async (req, res) => {
+  try {
+    const { url, content } = req.body;
+    
+    if (!url || !content) {
+      console.warn('❌ Missing required fields: url or content');
+      return res.status(400).json({
+        success: false,
+        error: 'url and content are required'
+      });
+    }
+    
+    console.log(`📄 API: Received request to save HTML content for: ${url}`);
+    console.log(`📏 API: Content size: ${content.length} characters`);
+    
+    // Extract resume ID from URL if available
+    let resume_link_id = null;
+    if (req.body.resume_link_id) {
+      resume_link_id = req.body.resume_link_id;
+      console.log(`🔗 API: Associated with resume_link_id: ${resume_link_id}`);
+    }
+    
+    // Save to database
+    console.log(`💾 API: Calling saveHtmlContent function...`);
+    const result = await saveHtmlContent({
+      url,
+      content,
+      resume_link_id
+    });
+    
+    if (result && result.id) {
+      console.log(`✅ API: Successfully saved HTML content with ID: ${result.id}`);
+      res.json({
+        success: true,
+        id: result.id,
+        url,
+        extracted_at: result.extracted_at,
+        message: 'HTML content saved successfully'
+      });
+    } else {
+      console.error(`❌ API: saveHtmlContent returned invalid result:`, result);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to save HTML content - no ID returned'
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ API: Error saving HTML content:', error);
+    console.error('   Stack trace:', error.stack);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get all HTML content records (for debugging)
+app.get('/resume/html-content', async (req, res) => {
+  try {
+    console.log('📋 Fetching all HTML content records...');
+    
+    const records = await getAllHtmlContent();
+    const count = await getHtmlContentCount();
+    
+    console.log(`📊 Found ${records.length} HTML content records`);
+    console.log(`📊 Total count from DB: ${count}`);
+    
+    res.json({
+      success: true,
+      count: count,
+      records: records,
+      recordsReturned: records.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching HTML content records:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get HTML content stats
+app.get('/resume/html-content/stats', async (req, res) => {
+  try {
+    console.log('📊 Getting HTML content statistics...');
+    
+    const count = await getHtmlContentCount();
+    const records = await getAllHtmlContent();
+    
+    const stats = {
+      totalRecords: count,
+      recordsFound: records.length,
+      latestRecord: records.length > 0 ? records[0] : null,
+      oldestRecord: records.length > 0 ? records[records.length - 1] : null
+    };
+    
+    console.log('📊 Stats:', stats);
+    
+    res.json({
+      success: true,
+      stats: stats
+    });
+  } catch (error) {
+    console.error('❌ Error getting HTML content stats:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -552,6 +772,10 @@ async function startServer() {
       console.log(`📥 Extract HTML at http://localhost:${PORT}/extract`);
       console.log(`🔗 Extract from URL at http://localhost:${PORT}/extract-url`);
       console.log(`📋 Get unprocessed extracts at http://localhost:${PORT}/extracts/unprocessed`);
+      console.log(`🔗 Save vacancy resume links at http://localhost:${PORT}/vacancy/resume-links`);
+      console.log(`📋 Get unprocessed links at http://localhost:${PORT}/resume-links/unprocessed`);
+      console.log(`✅ Mark link as processed at http://localhost:${PORT}/resume-links/:id/processed`);
+      console.log(`💾 Save HTML content at http://localhost:${PORT}/resume/html-content`);
       console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
       console.log(`\n💡 Don't forget to set your DATABASE_URL environment variable!`);
     });
