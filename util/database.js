@@ -13,6 +13,11 @@ function initDatabase() {
   console.log('🗄️ Database connection initialized');
 }
 
+// Initialize sql immediately if DATABASE_URL is available
+if (process.env.DATABASE_URL) {
+  sql = neon(process.env.DATABASE_URL);
+}
+
 // Create tables if they don't exist
 async function createTables() {
   try {
@@ -536,6 +541,7 @@ async function markExtractProcessed(extractId) {
 }
 
 module.exports = {
+  sql,
   initDatabase,
   createTables,
   saveChat,
@@ -543,11 +549,5 @@ module.exports = {
   saveMessages,
   getRecentMessages,
   getChatStats,
-  getAllChats,
-  saveResume,
-  getResume,
-  getAllResumes,
-  saveExtract,
-  getUnprocessedExtracts,
-  markExtractProcessed
+  getAllChats
 };

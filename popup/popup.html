@@ -262,6 +262,20 @@
     <div id="logContainer"></div>
   </div>
   
+  <div class="resume-extraction" style="margin-bottom: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; background: #fff;">
+    <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #333;">Resume Extraction</h4>
+    <div class="input-group">
+      <input type="number" id="resumeCount" placeholder="Number of resumes" value="50" min="1" max="1000">
+      <button id="extractResumesBtn" class="send-btn">Extract Resumes</button>
+    </div>
+    <div id="extractionStatus" style="display: none; margin-top: 8px; padding: 8px; background: #f8f9fa; border-radius: 3px; font-size: 12px;">
+      <span id="extractionMessage"></span>
+    </div>
+    <div class="help-text">
+      Extracts resumes from unprocessed links and saves to resume_html_content table
+    </div>
+  </div>
+  
   <div class="chat-list" id="chatList">
     <div class="empty">Looking for active chats...</div>
   </div>

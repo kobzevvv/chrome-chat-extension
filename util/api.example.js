@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increased limit for large HTML payloads
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -456,6 +456,235 @@ app.post('/extracts/:extractId/processed', async (req, res) => {
   }
 });
 
+// Resume extraction endpoint
+app.post('/extract-resumes/:count', async (req, res) => {
+  try {
+    const count = parseInt(req.params.count);
+    
+    if (!count || count < 1 || count > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid count. Must be between 1 and 1000.'
+      });
+    }
+    
+    console.log(`📄 Starting extraction of ${count} resumes...`);
+    
+    // Execute extraction script in background
+    const { spawn } = require('child_process');
+    const extraction = spawn('node', ['util/extract-resumes.js', count.toString()], {
+      cwd: process.cwd(),
+      env: process.env
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    extraction.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log(data.toString());
+    });
+    
+    extraction.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error(data.toString());
+    });
+    
+    extraction.on('close', (code) => {
+      if (code === 0) {
+        console.log(`✅ Extraction completed successfully`);
+      } else {
+        console.error(`❌ Extraction failed with code ${code}`);
+      }
+    });
+    
+    // Don't wait for completion, return immediately
+    res.json({
+      success: true,
+      message: `Started extraction of ${count} resumes. Check terminal for progress.`,
+      processId: extraction.pid
+    });
+    
+  } catch (error) {
+    console.error('❌ Error starting extraction:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Save cleaned resume HTML from extension
+app.post('/save-resume-html', async (req, res) => {
+  try {
+    const { resume_id, source_url, html_content } = req.body;
+    
+    if (!resume_id || !source_url || !html_content) {
+      return res.status(400).json({
+        success: false,
+        error: 'resume_id, source_url, and html_content are required'
+      });
+    }
+    
+    console.log(`📥 Saving resume HTML for ${resume_id} from extension`);
+    
+    // Clean the HTML
+    function cleanHTML(html) {
+      const originalSize = html.length;
+      
+      // Step 1: Remove script tags
+      html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      
+      // Step 2: Remove style tags
+      html = html.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+      
+      // Step 3: Remove comments
+      html = html.replace(/<!--[\s\S]*?-->/g, '');
+      
+      // Step 4: Remove meta, link, noscript tags
+      html = html.replace(/<(meta|link|noscript)\b[^>]*>/gi, '');
+      
+      // Step 5: Remove event handlers and style attributes
+      html = html.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '');
+      html = html.replace(/\s*style\s*=\s*["'][^"']*["']/gi, '');
+      
+      // Step 6: Remove tracking attributes
+      html = html.replace(/\s*data-gtm-\w+\s*=\s*["'][^"']*["']/gi, '');
+      html = html.replace(/\s*data-analytics-\w+\s*=\s*["'][^"']*["']/gi, '');
+      
+      // Step 7: Normalize whitespace
+      html = html.replace(/\s+/g, ' ');
+      html = html.replace(/>\s+</g, '><');
+      
+      const cleanedSize = html.length;
+      const reduction = Math.round((1 - cleanedSize / originalSize) * 100);
+      
+      return {
+        cleaned: html.trim(),
+        originalSize,
+        cleanedSize,
+        reduction
+      };
+    }
+    
+    const { cleaned, originalSize, cleanedSize, reduction } = cleanHTML(html_content);
+    
+    // Get database connection
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    
+    // Create table if not exists
+    await sql`
+      CREATE TABLE IF NOT EXISTS resume_html_content (
+        id BIGSERIAL PRIMARY KEY,
+        resume_id TEXT NOT NULL UNIQUE,
+        source_url TEXT NOT NULL,
+        html_content TEXT NOT NULL,
+        html_cleaned_version VARCHAR(10) DEFAULT '1.0',
+        html_original_size INT,
+        html_cleaned_size INT,
+        reduction_percent INT,
+        extracted_at TIMESTAMPTZ DEFAULT NOW(),
+        metadata JSONB DEFAULT '{}'::jsonb
+      )
+    `;
+    
+    // Save to database
+    await sql`
+      INSERT INTO resume_html_content (
+        resume_id, 
+        source_url, 
+        html_content, 
+        html_original_size,
+        html_cleaned_size,
+        reduction_percent,
+        metadata
+      )
+      VALUES (
+        ${resume_id}, 
+        ${source_url}, 
+        ${cleaned},
+        ${originalSize},
+        ${cleanedSize},
+        ${reduction},
+        ${{
+          source: 'chrome_extension',
+          cleaning_version: '1.0'
+        }}
+      )
+      ON CONFLICT (resume_id) 
+      DO UPDATE SET
+        html_content = EXCLUDED.html_content,
+        html_original_size = EXCLUDED.html_original_size,
+        html_cleaned_size = EXCLUDED.html_cleaned_size,
+        reduction_percent = EXCLUDED.reduction_percent,
+        extracted_at = NOW()
+    `;
+    
+    // Mark as processed in resume_links if exists
+    await sql`
+      UPDATE resume_links 
+      SET processed = true, processed_at = NOW()
+      WHERE url = ${source_url}
+    `;
+    
+    console.log(`✅ Saved resume ${resume_id} (reduced ${reduction}%)`);
+    
+    res.json({
+      success: true,
+      resume_id,
+      original_size: originalSize,
+      cleaned_size: cleanedSize,
+      reduction_percent: reduction,
+      message: `Resume HTML saved successfully (reduced by ${reduction}%)`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving resume HTML:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get unprocessed resume links for browser extraction
+app.get('/resume-links/unprocessed/:count', async (req, res) => {
+  try {
+    const count = parseInt(req.params.count) || 50;
+    
+    console.log(`📋 Fetching ${count} unprocessed resume links`);
+    
+    // Get database connection
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    
+    // Get unprocessed resume links
+    const links = await sql`
+      SELECT DISTINCT ON (url) url, vacancy_id, id
+      FROM resume_links
+      WHERE processed = false
+      ORDER BY url, id
+      LIMIT ${count}
+    `;
+    
+    console.log(`✅ Found ${links.length} unprocessed resume links`);
+    
+    res.json({
+      success: true,
+      links,
+      count: links.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting unprocessed links:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Vacancy resume links endpoint
 app.post('/vacancy/resume-links', async (req, res) => {
   try {
@@ -547,11 +776,8 @@ async function startServer() {
       console.log(`🚀 HH Chat API server running on http://localhost:${PORT}`);
       console.log(`📨 Chat snapshots will be received at http://localhost:${PORT}/inbox`);
       console.log(`📊 View all chats at http://localhost:${PORT}/chats`);
-      console.log(`📄 Resume parsing at http://localhost:${PORT}/resume/parse`);
-      console.log(`📑 View all resumes at http://localhost:${PORT}/resumes`);
-      console.log(`📥 Extract HTML at http://localhost:${PORT}/extract`);
-      console.log(`🔗 Extract from URL at http://localhost:${PORT}/extract-url`);
-      console.log(`📋 Get unprocessed extracts at http://localhost:${PORT}/extracts/unprocessed`);
+      console.log(`🔗 Resume links management at http://localhost:${PORT}/vacancy/resume-links`);
+      console.log(`📄 Resume extraction at http://localhost:${PORT}/extract-resumes/:count`);
       console.log(`❤️  Health check available at http://localhost:${PORT}/health`);
       console.log(`\n💡 Don't forget to set your DATABASE_URL environment variable!`);
     });
