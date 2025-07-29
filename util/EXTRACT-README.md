@@ -27,14 +27,14 @@ A simple command-line tool for extracting and managing HH.ru resume data using a
 npm run extract
 
 # Extract specific resume
-node util/extract-cli.js extract https://hh.ru/resume/abc123
+node util/extract-cli.js extract https://hh.ru/resume/eb6a98c0000f30b1ee0097a6044d4958673372
 
 # Using curl directly
 curl -X POST http://localhost:4000/extract-url \
   -H "Content-Type: application/json" \
   -d '{"url": "https://ufa.hh.ru/resume/eb6a98c0000f30b1ee0097a6044d4958673372"}'
 ```
-
+-- eb6a98c0000f30b1ee0097a6044d4958673372
 ### List Unprocessed Extracts
 ```bash
 npm run extract:list

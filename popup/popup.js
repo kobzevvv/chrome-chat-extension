@@ -310,6 +310,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set up button event listeners
   const sendBtn = document.getElementById('quickSendBtn');
   const testBtn = document.getElementById('testBtn');
+  const debugBtn = document.getElementById('debugBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const inspectBtn = document.getElementById('inspectBtn');
   
   if (sendBtn) {
     sendBtn.addEventListener('click', sendQuickMessage);
@@ -325,6 +328,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     console.log('❌ Test button not found');
     addLog('❌ Test button not found in DOM');
+  }
+  
+  if (debugBtn) {
+    debugBtn.addEventListener('click', getDebugInfo);
+    console.log('✅ Debug button listener added');
+  } else {
+    console.log('❌ Debug button not found');
+  }
+  
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadChatList);
+    console.log('✅ Refresh button listener added');
+  } else {
+    console.log('❌ Refresh button not found');
+  }
+  
+  if (inspectBtn) {
+    inspectBtn.addEventListener('click', inspectMessagesDOM);
+    console.log('✅ Inspect button listener added');
+  } else {
+    console.log('❌ Inspect button not found');
   }
   
   // Try to load chat list
@@ -373,9 +397,9 @@ function renderChatList(chats) {
   }
   
   container.innerHTML = chats.map((chat, index) => `
-    <div class="chat-item" onclick="selectChat('${chat.chatId}', '${escapeHtml(chat.name)}')">
+    <div class="chat-item" data-chat-id="${chat.chatId}" data-chat-name="${escapeHtml(chat.name)}">
       <div class="chat-name">${escapeHtml(chat.name || `Chat #${index + 1}`)}</div>
-      <div class="chat-id" onclick="event.stopPropagation(); copyToClipboard('${chat.chatId}')" title="Click to copy Chat ID">
+      <div class="chat-id" data-action="copy-id" data-value="${chat.chatId}" title="Click to copy Chat ID">
         ID: ${chat.chatId}
       </div>
       <div class="chat-preview">${escapeHtml(chat.lastMessage || 'No messages')}</div>
@@ -383,11 +407,41 @@ function renderChatList(chats) {
         <span>Messages: ${chat.messageCount || 0}</span>
         <span>${chat.isActive ? '🟢 Active' : '⚪ Inactive'}</span>
       </div>
-      <div class="quick-copy" onclick="event.stopPropagation(); copyQuickFormat('${chat.chatId}')" title="Click to copy quick format">
+      <div class="quick-copy" data-action="copy-format" data-value="${chat.chatId}" title="Click to copy quick format">
         chat:${chat.chatId}:
       </div>
     </div>
   `).join('');
+  
+  // Add event delegation for chat list interactions
+  container.addEventListener('click', handleChatListClick);
+}
+
+// Handle clicks on chat list items
+function handleChatListClick(event) {
+  const target = event.target;
+  
+  // Handle copy actions
+  const action = target.getAttribute('data-action');
+  if (action === 'copy-id') {
+    event.stopPropagation();
+    copyToClipboard(target.getAttribute('data-value'));
+    return;
+  }
+  
+  if (action === 'copy-format') {
+    event.stopPropagation();
+    copyQuickFormat(target.getAttribute('data-value'));
+    return;
+  }
+  
+  // Handle chat item selection
+  const chatItem = target.closest('.chat-item');
+  if (chatItem) {
+    const chatId = chatItem.getAttribute('data-chat-id');
+    const chatName = chatItem.getAttribute('data-chat-name');
+    selectChat(chatId, chatName);
+  }
 }
 
 function selectChat(chatId, chatName) {

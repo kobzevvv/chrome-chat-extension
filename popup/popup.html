@@ -243,16 +243,16 @@
     <h4>Send Message</h4>
     <div class="input-group">
       <input type="text" id="quickFormat" placeholder="chat:4644696158:Привет" style="width: 100%;">
-      <button class="send-btn" id="quickSendBtn" onclick="console.log('🔴 BUTTON CLICKED!'); sendQuickMessage()">Send</button>
+      <button class="send-btn" id="quickSendBtn">Send</button>
     </div>
     <div class="help-text">
       Format: chat:ID:message (click on chat items to get the format)
     </div>
     <div style="margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap;">
-      <button onclick="testLogging()" style="padding: 4px 8px; font-size: 11px;">Test</button>
-      <button onclick="getDebugInfo()" style="padding: 4px 8px; font-size: 11px;">Debug Info</button>
-      <button onclick="loadChatList()" style="padding: 4px 8px; font-size: 11px;">Refresh</button>
-      <button onclick="inspectMessagesDOM()" style="padding: 4px 8px; font-size: 11px;">Inspect DOM</button>
+      <button id="testBtn" style="padding: 4px 8px; font-size: 11px;">Test</button>
+      <button id="debugBtn" style="padding: 4px 8px; font-size: 11px;">Debug Info</button>
+      <button id="refreshBtn" style="padding: 4px 8px; font-size: 11px;">Refresh</button>
+      <button id="inspectBtn" style="padding: 4px 8px; font-size: 11px;">Inspect DOM</button>
     </div>
   </div>
   

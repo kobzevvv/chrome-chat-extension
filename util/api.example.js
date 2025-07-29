@@ -350,18 +350,61 @@ app.post('/extract-url', async (req, res) => {
     
     const resume_id = resumeIdMatch[1];
     
-    // In a real implementation, you would fetch the HTML here
-    // For now, we'll return instructions
-    res.json({
-      success: true,
-      message: 'Extract endpoint ready',
+    // Create test HTML content that simulates a resume page
+    const testHtmlContent = `
+      <html>
+        <head><title>Test Resume - ${resume_id}</title></head>
+        <body>
+          <div class="resume-header">
+            <h1>Test Candidate Name</h1>
+            <div class="resume-contacts">
+              <span>+7 (999) 123-45-67</span>
+              <span>test.email@example.com</span>
+              <span>@test_telegram</span>
+            </div>
+          </div>
+          <div class="resume-body">
+            <h2>Experience</h2>
+            <div class="experience-item">
+              <h3>Senior Developer</h3>
+              <p>Test Company • 2020 - Present</p>
+              <p>Working on test projects</p>
+            </div>
+            <h2>Education</h2>
+            <div class="education-item">
+              <h3>Computer Science</h3>
+              <p>Test University • 2016 - 2020</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    
+    // Save the extract to database
+    const extractData = {
       resume_id,
       source_url: url,
-      next_steps: [
-        '1. Fetch HTML from the URL using Chrome extension or server-side fetcher',
-        '2. POST the HTML to /extract endpoint',
-        '3. Process extracts asynchronously using /extracts/unprocessed'
-      ]
+      html_content: testHtmlContent,
+      metadata: {
+        test_data: true,
+        created_via: 'extract-url endpoint',
+        timestamp: new Date().toISOString()
+      }
+    };
+    
+    const result = await saveExtract(extractData);
+    
+    console.log(`✅ Test extract saved for resume ${resume_id}`);
+    
+    res.json({
+      success: true,
+      message: 'Test HTML extract saved successfully',
+      resume_id,
+      source_url: url,
+      extract_id: result.id,
+      extracted_at: result.extracted_at,
+      html_length: testHtmlContent.length,
+      is_test_data: true
     });
     
   } catch (error) {
