@@ -741,6 +741,7 @@ app.post('/vacancy/resume-links', async (req, res) => {
       vacancyId,
       total: links.length,
       inserted,
+      duplicates: links.length - inserted,
       message: `Successfully saved ${inserted} resume links`
     });
     
